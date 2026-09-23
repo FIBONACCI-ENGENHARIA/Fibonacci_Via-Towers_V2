@@ -244,6 +244,8 @@
     padding:9px 16px;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;border:none;
   }
   .modal-btn-cancel{background:var(--card-alt);color:var(--text);}
+  .modal-btn-danger{background:transparent;color:#C0392B;border:1px solid #E0A8A0;}
+  .modal-btn-danger:hover{background:#FCEBEA;}
   .modal-btn-confirm{background:var(--gold);color:#fff;}
   .modal-btn-confirm:hover{background:var(--gold-light);}
   .modal-error{color:#E5484D;font-size:12px;margin-top:8px;display:none;}
@@ -724,6 +726,35 @@ function decodeKeyedMapFromFirebase(map){
   Object.keys(map).forEach(k => { out[fbDecodeKeyPart(k)] = map[k]; });
   return out;
 }
+/**
+ * O schedule precisa de uma codificação própria: se todos os dias de uma
+ * tarefa forem desmarcados, o valor vira um array vazio — e o Firebase
+ * trata array/objeto vazio como "nada aqui", apagando o campo de verdade.
+ * Ao recarregar, isso faz o app cair de volta no dia padrão original. Pra
+ * evitar isso, guardamos cada dia como true/false explícito (um objeto que
+ * nunca fica vazio de verdade), em vez de um array que pode ficar vazio.
+ */
+function encodeScheduleForFirebase(scheduleMap){
+  if (!scheduleMap) return scheduleMap;
+  const out = {};
+  Object.keys(scheduleMap).forEach(k => {
+    const daysArr = Array.isArray(scheduleMap[k]) ? scheduleMap[k] : [];
+    const dayObj = {};
+    DAYS.forEach(({ code }) => { dayObj[code] = daysArr.includes(code); });
+    out[fbEncodeKeyPart(k)] = dayObj;
+  });
+  return out;
+}
+function decodeScheduleFromFirebase(scheduleMap){
+  if (!scheduleMap) return scheduleMap;
+  const out = {};
+  Object.keys(scheduleMap).forEach(encKey => {
+    const key = fbDecodeKeyPart(encKey);
+    const dayObj = scheduleMap[encKey] || {};
+    out[key] = DAYS.filter(({ code }) => dayObj[code] === true).map(({ code }) => code);
+  });
+  return out;
+}
 function encodeCustomSeedForFirebase(customSeed){
   if (!customSeed) return customSeed;
   const out = {};
@@ -800,7 +831,7 @@ async function loadStoredPayload(){
       const raw = snap.val() || {};
       return {
         done: decodeKeyedMapFromFirebase(raw.done),
-        schedule: decodeKeyedMapFromFirebase(raw.schedule),
+        schedule: decodeScheduleFromFirebase(raw.schedule),
         hiddenTasks: decodeKeyedMapFromFirebase(raw.hiddenTasks),
         archived: decodeKeyedMapFromFirebase(raw.archived),
         customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
@@ -856,7 +887,7 @@ async function writeStoredPayload(payload){
   if (fbDb){
     const fbPayload = {
       done: encodeKeyedMapForFirebase(payload.done),
-      schedule: encodeKeyedMapForFirebase(payload.schedule),
+      schedule: encodeScheduleForFirebase(payload.schedule),
       hiddenTasks: encodeKeyedMapForFirebase(payload.hiddenTasks),
       archived: encodeKeyedMapForFirebase(payload.archived),
       customSeed: encodeCustomSeedForFirebase(payload.customSeed),
@@ -1038,6 +1069,23 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
   }
 
   return { func: effectiveFunc, key: newKey };
+}
+
+/**
+ * Apaga uma atividade por completo — funciona tanto pra tarefas do
+ * levantamento original (BASE_SEED, que a gente não pode editar de verdade,
+ * então só "esconde") quanto pra tarefas cadastradas por você (customSeed,
+ * removida de fato). Limpa também o progresso e o agendamento dela.
+ */
+function deleteTask(state, sala, func, text){
+  const key = taskKey(func, sala, text);
+  if (!state.hiddenTasks) state.hiddenTasks = {};
+  state.hiddenTasks[key] = true;
+  removeFromCustomSeed(state, sala, func, text);
+  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks);
+  delete state.done[key];
+  delete state.schedule[key];
+  return { key };
 }
 
 async function saveState(state, updateStamp = true){
@@ -1992,6 +2040,8 @@ function showEditTaskModal(sala, func, text){
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="edit-task-error"></div>
     <div class="modal-actions">
+      <button class="modal-btn modal-btn-danger" id="edit-task-delete">Apagar atividade</button>
+      <div style="flex:1;"></div>
       <button class="modal-btn modal-btn-cancel" id="edit-task-cancel">Cancelar</button>
       <button class="modal-btn modal-btn-confirm" id="edit-task-confirm">Salvar alterações</button>
     </div>
@@ -2000,6 +2050,30 @@ function showEditTaskModal(sala, func, text){
   const textInput = document.getElementById('edit-task-text');
   textInput.focus();
   textInput.select();
+
+  document.getElementById('edit-task-delete').onclick = async () => {
+    const confirmado = confirm(`Apagar a atividade "${text}"? Essa ação não pode ser desfeita.`);
+    if (!confirmado) return;
+
+    const deleteBtn = document.getElementById('edit-task-delete');
+    const errEl = document.getElementById('edit-task-error');
+    deleteBtn.textContent = 'Apagando...';
+    deleteBtn.disabled = true;
+
+    deleteTask(appState, sala, func, text);
+    const ok = await saveState(appState);
+
+    if (!ok){
+      deleteBtn.textContent = 'Apagar atividade';
+      deleteBtn.disabled = false;
+      errEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
+      errEl.classList.add('show');
+      return;
+    }
+
+    closeModal();
+    render();
+  };
 
   const funcSelect = document.getElementById('edit-task-func-select');
   const funcNewField = document.getElementById('edit-task-func-new-field');
