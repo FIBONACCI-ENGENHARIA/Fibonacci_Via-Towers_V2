@@ -668,6 +668,63 @@ const FIREBASE_CONFIG = {
   appId: "1:761114237731:web:0761b7e30e912291668a96"
 };
 
+/**
+ * O Firebase Realtime Database proíbe ".", "#", "$", "[" e "]" em nomes de
+ * chave — e o texto das nossas tarefas usa pontuação normal (frases
+ * terminando em ".", por exemplo), então as chaves compostas
+ * "func|sala|texto" quebrariam a gravação inteira sem essa camada. Só as
+ * chaves de objetos "dicionário" (done, schedule, hiddenTasks, archived,
+ * e os dois níveis de customSeed) passam por isso — o resto do app nunca
+ * vê essa codificação, ela existe só na fronteira com o Firebase.
+ */
+function fbEncodeKeyPart(key){
+  return btoa(unescape(encodeURIComponent(String(key))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+function fbDecodeKeyPart(encoded){
+  let b64 = String(encoded).replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  return decodeURIComponent(escape(atob(b64)));
+}
+function encodeKeyedMapForFirebase(map){
+  if (!map) return map;
+  const out = {};
+  Object.keys(map).forEach(k => { out[fbEncodeKeyPart(k)] = map[k]; });
+  return out;
+}
+function decodeKeyedMapFromFirebase(map){
+  if (!map) return map;
+  const out = {};
+  Object.keys(map).forEach(k => { out[fbDecodeKeyPart(k)] = map[k]; });
+  return out;
+}
+function encodeCustomSeedForFirebase(customSeed){
+  if (!customSeed) return customSeed;
+  const out = {};
+  Object.keys(customSeed).forEach(sala => {
+    const encSala = fbEncodeKeyPart(sala);
+    out[encSala] = {};
+    Object.keys(customSeed[sala]).forEach(func => {
+      out[encSala][fbEncodeKeyPart(func)] = customSeed[sala][func];
+    });
+  });
+  return out;
+}
+function decodeCustomSeedFromFirebase(customSeed){
+  if (!customSeed) return customSeed;
+  const out = {};
+  Object.keys(customSeed).forEach(encSala => {
+    const sala = fbDecodeKeyPart(encSala);
+    out[sala] = {};
+    Object.keys(customSeed[encSala]).forEach(encFunc => {
+      out[sala][fbDecodeKeyPart(encFunc)] = customSeed[encSala][encFunc];
+    });
+  });
+  return out;
+}
+
 let firebaseDbInstance = null;
 function getFirebaseDb(){
   if (firebaseDbInstance) return firebaseDbInstance;
@@ -716,7 +773,15 @@ async function loadStoredPayload(){
     updateDiag({ backend: 'Firebase' });
     try{
       const snap = await withTimeout(fbDb.ref('state/' + STORAGE_KEY).once('value'), 12000, 'Firebase: ler');
-      return snap.val() || {};
+      const raw = snap.val() || {};
+      return {
+        done: decodeKeyedMapFromFirebase(raw.done),
+        schedule: decodeKeyedMapFromFirebase(raw.schedule),
+        hiddenTasks: decodeKeyedMapFromFirebase(raw.hiddenTasks),
+        archived: decodeKeyedMapFromFirebase(raw.archived),
+        customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
+        lastUpdated: raw.lastUpdated
+      };
     }catch(e){
       console.error('Falha ao ler do Firebase', e);
       updateDiag({ lastError: 'leitura: ' + (e && e.message || String(e)) });
@@ -765,7 +830,15 @@ async function loadStoredPayload(){
 async function writeStoredPayload(payload){
   const fbDb = getFirebaseDb();
   if (fbDb){
-    await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(payload), 12000, 'Firebase: salvar');
+    const fbPayload = {
+      done: encodeKeyedMapForFirebase(payload.done),
+      schedule: encodeKeyedMapForFirebase(payload.schedule),
+      hiddenTasks: encodeKeyedMapForFirebase(payload.hiddenTasks),
+      archived: encodeKeyedMapForFirebase(payload.archived),
+      customSeed: encodeCustomSeedForFirebase(payload.customSeed),
+      lastUpdated: payload.lastUpdated
+    };
+    await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(fbPayload), 12000, 'Firebase: salvar');
     return;
   }
 
