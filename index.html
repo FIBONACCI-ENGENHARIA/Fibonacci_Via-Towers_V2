@@ -328,6 +328,16 @@
   .day-pill:hover{border-color:var(--gold);}
   .day-pill.active{background:var(--gold);border-color:var(--gold);color:#fff;}
 
+  .purchase-stages{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .stage-pill{
+    font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;
+    border:1px solid var(--border);background:var(--card);color:var(--text-secondary);
+    cursor:pointer;line-height:1.4;
+  }
+  .stage-pill:hover{border-color:var(--gold);}
+  .stage-pill.active{background:var(--gold);border-color:var(--gold);color:#fff;}
+  .stage-pill.stage-final.active{background:#1a7a3c;border-color:#1a7a3c;}
+
   .calendar-section{margin-top:28px;}
   .calendar-section h2{
     font-size:16px;font-weight:700;margin:0 0 12px;color:var(--text);
@@ -557,7 +567,7 @@ const BASE_SEED = {
   }
 };
 
-function mergeSeed(base, custom, hidden){
+function mergeSeed(base, custom, hidden, customSalas){
   hidden = hidden || {};
   const result = {};
   Object.keys(base).forEach(sala => {
@@ -576,6 +586,14 @@ function mergeSeed(base, custom, hidden){
       if (!result[sala][func]) result[sala][func] = [];
       result[sala][func] = result[sala][func].concat(custom[sala][func]);
     });
+  });
+  // salas criadas sem nenhuma tarefa ainda ficariam com um objeto vazio no
+  // customSeed — e o Firebase apaga objetos vazios ao salvar. customSalas
+  // (um registro tipo {nome: true}, que nunca fica vazio de verdade
+  // enquanto existir alguma sala) garante que elas continuem aparecendo
+  // mesmo sem nenhuma tarefa cadastrada.
+  Object.keys(customSalas || {}).forEach(sala => {
+    if (!result[sala]) result[sala] = {};
   });
   return result;
 }
@@ -835,6 +853,8 @@ async function loadStoredPayload(){
         hiddenTasks: decodeKeyedMapFromFirebase(raw.hiddenTasks),
         archived: decodeKeyedMapFromFirebase(raw.archived),
         customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
+        purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
+        customSalas: decodeKeyedMapFromFirebase(raw.customSalas),
         lastUpdated: raw.lastUpdated
       };
     }catch(e){
@@ -891,6 +911,8 @@ async function writeStoredPayload(payload){
       hiddenTasks: encodeKeyedMapForFirebase(payload.hiddenTasks),
       archived: encodeKeyedMapForFirebase(payload.archived),
       customSeed: encodeCustomSeedForFirebase(payload.customSeed),
+      purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
+      customSalas: encodeKeyedMapForFirebase(payload.customSalas),
       lastUpdated: payload.lastUpdated
     };
     await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(fbPayload), 12000, 'Firebase: salvar');
@@ -920,18 +942,23 @@ async function loadState(){
   let storedCustomSeed = {};
   let storedArchived = {};
   let storedHiddenTasks = {};
+  let storedPurchaseStatus = {};
+  let storedCustomSalas = {};
   let lastUpdated = null;
 
   try{
     const parsed = await loadStoredPayload();
     if (parsed && parsed.done) storedDone = parsed.done;
     if (parsed && parsed.schedule) storedSchedule = parsed.schedule;
-    // customSeed/archived/hiddenTasks são clonados (em vez de usados por
-    // referência direta) porque o objeto que volta do banco pode não ser
-    // editável — mutar ele direto falha em silêncio ou lança erro.
+    // customSeed/archived/hiddenTasks/purchaseStatus/customSalas são
+    // clonados (em vez de usados por referência direta) porque o objeto que
+    // volta do banco pode não ser editável — mutar ele direto falha em
+    // silêncio ou lança erro.
     if (parsed && parsed.customSeed) storedCustomSeed = JSON.parse(JSON.stringify(parsed.customSeed));
     if (parsed && parsed.archived) storedArchived = JSON.parse(JSON.stringify(parsed.archived));
     if (parsed && parsed.hiddenTasks) storedHiddenTasks = JSON.parse(JSON.stringify(parsed.hiddenTasks));
+    if (parsed && parsed.purchaseStatus) storedPurchaseStatus = JSON.parse(JSON.stringify(parsed.purchaseStatus));
+    if (parsed && parsed.customSalas) storedCustomSalas = JSON.parse(JSON.stringify(parsed.customSalas));
     if (parsed && parsed.lastUpdated) lastUpdated = parsed.lastUpdated;
   }catch(e){
     // ainda não existe nada salvo para esta obra, segue com storedDone vazio
@@ -943,7 +970,7 @@ async function loadState(){
   // fizer no código. Só o progresso (done) e o agendamento (schedule) são
   // recuperados do que já estava salvo, tarefa a tarefa (pela chave
   // func|sala|texto), pra sobreviver a reorganizações sem perder marcações.
-  const seed = mergeSeed(BASE_SEED, storedCustomSeed, storedHiddenTasks);
+  const seed = mergeSeed(BASE_SEED, storedCustomSeed, storedHiddenTasks, storedCustomSalas);
 
   const done = {};
   const schedule = {};
@@ -954,7 +981,12 @@ async function loadState(){
       : (defaultDays || []).filter(d => DAYS.some(D => D.code === d));
   });
 
-  const state = { seed, customSeed: storedCustomSeed, archived: storedArchived, hiddenTasks: storedHiddenTasks, done, schedule, lastUpdated };
+  const state = {
+    seed, customSeed: storedCustomSeed, archived: storedArchived,
+    hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
+    customSalas: storedCustomSalas,
+    done, schedule, lastUpdated
+  };
   await saveState(state, false);
   return state;
 }
@@ -977,12 +1009,56 @@ function isPurchaseTask(text){
   return /compr/i.test(text);
 }
 
+const PURCHASE_STAGES = [
+  { code: 'orcado', label: 'Orçado' },
+  { code: 'pago', label: 'Pago' },
+  { code: 'entregue', label: 'Entregue' }
+];
+
+/** Lê o status de compra (Orçado/Pago/Entregue) de uma tarefa. */
+function getPurchaseStatus(state, key){
+  const s = (state.purchaseStatus && state.purchaseStatus[key]) || {};
+  return { orcado: !!s.orcado, pago: !!s.pago, entregue: !!s.entregue };
+}
+
+/**
+ * Muda um estágio específico de uma tarefa de compra. "Entregue" também
+ * atualiza state.done — assim toda a lógica que já existe (progresso,
+ * calendário, lista de concluídas) continua funcionando sem precisar saber
+ * que essa tarefa tem estágios extras.
+ */
+function setPurchaseStage(state, key, stage, value){
+  if (!state.purchaseStatus) state.purchaseStatus = {};
+  const current = getPurchaseStatus(state, key);
+  current[stage] = value;
+  state.purchaseStatus[key] = current;
+  if (stage === 'entregue') state.done[key] = value;
+}
+
+/**
+ * Marca uma tarefa como feita/não feita (usado na lista de concluídas).
+ * Pra tarefas de Compras, mantém o estágio "Entregue" sincronizado, pra não
+ * ficar com done=false e entregue=true ao mesmo tempo.
+ */
+function setTaskDone(state, key, doneValue){
+  const { func } = parseKey(key);
+  if (func === 'Compras'){
+    if (!state.purchaseStatus) state.purchaseStatus = {};
+    const current = getPurchaseStatus(state, key);
+    current.entregue = doneValue;
+    state.purchaseStatus[key] = current;
+  }
+  state.done[key] = doneValue;
+}
+
 /** Cria uma sala nova (vazia) se ainda não existir. Retorna false se já existia. */
 function addCustomSala(state, salaName){
   const name = String(salaName || '').trim();
   if (!name || state.seed[name]) return false;
+  if (!state.customSalas) state.customSalas = {};
+  state.customSalas[name] = true;
   if (!state.customSeed[name]) state.customSeed[name] = {};
-  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks);
+  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks, state.customSalas);
   return true;
 }
 
@@ -1010,7 +1086,7 @@ function addCustomTask(state, sala, func, text, days){
   if (!state.customSeed[sala][effectiveFunc]) state.customSeed[sala][effectiveFunc] = [];
   state.customSeed[sala][effectiveFunc].push(cleanDays.length ? [cleanText, false, cleanDays] : cleanText);
 
-  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks);
+  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks, state.customSalas);
 
   const key = taskKey(effectiveFunc, sala, cleanText);
   state.done[key] = false;
@@ -1047,6 +1123,7 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
   const newKey = taskKey(effectiveFunc, sala, cleanText);
 
   if (!state.hiddenTasks) state.hiddenTasks = {};
+  if (!state.purchaseStatus) state.purchaseStatus = {};
 
   if (oldKey !== newKey){
     state.hiddenTasks[oldKey] = true;
@@ -1056,12 +1133,21 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
     if (!state.customSeed[sala][effectiveFunc]) state.customSeed[sala][effectiveFunc] = [];
     state.customSeed[sala][effectiveFunc].push(cleanDays.length ? [cleanText, false, cleanDays] : cleanText);
 
-    state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks);
+    state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks, state.customSalas);
 
     state.done[newKey] = !!state.done[oldKey];
     delete state.done[oldKey];
     delete state.schedule[oldKey];
     if (cleanDays.length) state.schedule[newKey] = cleanDays; else delete state.schedule[newKey];
+
+    // migra o status de compra (Orçado/Pago/Entregue) da chave antiga pra nova
+    if (state.purchaseStatus[oldKey]){
+      state.purchaseStatus[newKey] = state.purchaseStatus[oldKey];
+      delete state.purchaseStatus[oldKey];
+    }
+    if (effectiveFunc !== 'Compras'){
+      delete state.purchaseStatus[newKey];
+    }
   } else if (cleanDays.length){
     state.schedule[newKey] = cleanDays;
   } else {
@@ -1075,16 +1161,18 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
  * Apaga uma atividade por completo — funciona tanto pra tarefas do
  * levantamento original (BASE_SEED, que a gente não pode editar de verdade,
  * então só "esconde") quanto pra tarefas cadastradas por você (customSeed,
- * removida de fato). Limpa também o progresso e o agendamento dela.
+ * removida de fato). Limpa também o progresso, o agendamento e o status de
+ * compra dela.
  */
 function deleteTask(state, sala, func, text){
   const key = taskKey(func, sala, text);
   if (!state.hiddenTasks) state.hiddenTasks = {};
   state.hiddenTasks[key] = true;
   removeFromCustomSeed(state, sala, func, text);
-  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks);
+  state.seed = mergeSeed(BASE_SEED, state.customSeed, state.hiddenTasks, state.customSalas);
   delete state.done[key];
   delete state.schedule[key];
+  if (state.purchaseStatus) delete state.purchaseStatus[key];
   return { key };
 }
 
@@ -1097,6 +1185,8 @@ async function saveState(state, updateStamp = true){
     customSeed: state.customSeed,
     archived: state.archived,
     hiddenTasks: state.hiddenTasks,
+    purchaseStatus: state.purchaseStatus,
+    customSalas: state.customSalas,
     lastUpdated: state.lastUpdated
   };
   try{
@@ -1268,26 +1358,46 @@ const EDIT_ICON_SVG = '<svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path 
 function renderTaskItem(state, func, sala, text, opts){
   opts = opts || {};
   const key = taskKey(func, sala, text);
+  const isCompra = func === 'Compras';
   const li = document.createElement('li');
   li.className = 'task-item';
   const inputId = 'chk_' + key.replace(/[^a-zA-Z0-9]/g, '_');
   const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
   li.innerHTML = `
-    <input type="checkbox" id="${inputId}" />
+    ${isCompra ? '' : `<input type="checkbox" id="${inputId}" />`}
     <div class="task-item-body">
       <div class="task-item-row">
-        <label for="${inputId}">${contextHtml}${text}</label>
+        <label${isCompra ? '' : ` for="${inputId}"`}>${contextHtml}${text}</label>
         <button type="button" class="edit-task-btn no-capture" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
+      ${isCompra ? '<div class="purchase-stages"></div>' : ''}
       <div class="day-pills"></div>
     </div>
   `;
-  const checkbox = li.querySelector('input');
-  checkbox.addEventListener('change', async () => {
-    state.done[key] = checkbox.checked;
-    await saveState(state);
-    render();
-  });
+
+  if (isCompra){
+    const stagesEl = li.querySelector('.purchase-stages');
+    const status = getPurchaseStatus(state, key);
+    PURCHASE_STAGES.forEach(({ code, label }) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'stage-pill' + (status[code] ? ' active' : '') + (code === 'entregue' ? ' stage-final' : '');
+      btn.textContent = label;
+      btn.addEventListener('click', async () => {
+        setPurchaseStage(state, key, code, !status[code]);
+        await saveState(state);
+        render();
+      });
+      stagesEl.appendChild(btn);
+    });
+  } else {
+    const checkbox = li.querySelector('input');
+    checkbox.addEventListener('change', async () => {
+      setTaskDone(state, key, checkbox.checked);
+      await saveState(state);
+      render();
+    });
+  }
 
   const pillsEl = li.querySelector('.day-pills');
   const scheduled = state.schedule[key] || [];
@@ -1462,22 +1572,41 @@ function renderCompletedList(state, title, filterFn, contextLabelFn){
   list.className = 'task-list';
 
   doneTasks.forEach(({ func, sala, text, key }) => {
+    const isCompra = func === 'Compras';
     const li = document.createElement('li');
     li.className = 'task-item done';
     const inputId = 'chk_done_' + key.replace(/[^a-zA-Z0-9]/g, '_');
     const ctx = contextLabelFn ? contextLabelFn({ func, sala }) : '';
     li.innerHTML = `
-      <input type="checkbox" id="${inputId}" checked />
+      ${isCompra ? '' : `<input type="checkbox" id="${inputId}" checked />`}
       <div class="task-item-body">
-        <label for="${inputId}">${ctx ? `<span class="chip-context" style="display:block;">${ctx}</span>` : ''}${text}</label>
+        <label${isCompra ? '' : ` for="${inputId}"`}>${ctx ? `<span class="chip-context" style="display:block;">${ctx}</span>` : ''}${text}</label>
+        ${isCompra ? '<div class="purchase-stages"></div>' : ''}
       </div>
     `;
-    const checkbox = li.querySelector('input');
-    checkbox.addEventListener('change', async () => {
-      state.done[key] = checkbox.checked;
-      await saveState(state);
-      render();
-    });
+    if (isCompra){
+      const stagesEl = li.querySelector('.purchase-stages');
+      const status = getPurchaseStatus(state, key);
+      PURCHASE_STAGES.forEach(({ code, label }) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'stage-pill' + (status[code] ? ' active' : '') + (code === 'entregue' ? ' stage-final' : '');
+        btn.textContent = label;
+        btn.addEventListener('click', async () => {
+          setPurchaseStage(state, key, code, !status[code]);
+          await saveState(state);
+          render();
+        });
+        stagesEl.appendChild(btn);
+      });
+    } else {
+      const checkbox = li.querySelector('input');
+      checkbox.addEventListener('change', async () => {
+        setTaskDone(state, key, checkbox.checked);
+        await saveState(state);
+        render();
+      });
+    }
     list.appendChild(li);
   });
 
