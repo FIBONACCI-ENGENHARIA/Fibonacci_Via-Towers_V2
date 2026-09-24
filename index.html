@@ -189,7 +189,13 @@
   }
   .archive-btn:hover{border-color:var(--gold);color:var(--gold);}
 
-  .project-link-row{display:inline-flex;align-items:center;gap:6px;margin:0 10px 14px 0;}
+  .sala-actions-row{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    flex-wrap:wrap;gap:10px;
+  }
+  .sala-actions-left{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;}
+  .sala-actions-right{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;}
+  .project-link-row{display:inline-flex;align-items:center;gap:6px;margin:0;}
   .project-link-btn{
     display:inline-flex;align-items:center;gap:6px;
     padding:9px 14px;font-size:13px;font-weight:700;
@@ -1398,8 +1404,7 @@ function renderTaskItem(state, func, sala, text, opts){
         <label${isCompra ? '' : ` for="${inputId}"`}>${contextHtml}${text}</label>
         <button type="button" class="edit-task-btn no-capture" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
-      ${isCompra ? '<div class="purchase-stages"></div>' : ''}
-      <div class="day-pills"></div>
+      ${isCompra ? '<div class="purchase-stages"></div>' : '<div class="day-pills"></div>'}
     </div>
   `;
 
@@ -1425,26 +1430,26 @@ function renderTaskItem(state, func, sala, text, opts){
       await saveState(state);
       render();
     });
-  }
 
-  const pillsEl = li.querySelector('.day-pills');
-  const scheduled = state.schedule[key] || [];
-  DAYS.forEach(({ code, label }) => {
-    const pill = document.createElement('button');
-    pill.type = 'button';
-    pill.className = 'day-pill' + (scheduled.includes(code) ? ' active' : '');
-    pill.textContent = label;
-    pill.title = `Agendar para ${label}`;
-    pill.addEventListener('click', async () => {
-      const current = state.schedule[key] || [];
-      state.schedule[key] = current.includes(code)
-        ? current.filter(d => d !== code)
-        : [...current, code];
-      await saveState(state);
-      render();
+    const pillsEl = li.querySelector('.day-pills');
+    const scheduled = state.schedule[key] || [];
+    DAYS.forEach(({ code, label }) => {
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'day-pill' + (scheduled.includes(code) ? ' active' : '');
+      pill.textContent = label;
+      pill.title = `Agendar para ${label}`;
+      pill.addEventListener('click', async () => {
+        const current = state.schedule[key] || [];
+        state.schedule[key] = current.includes(code)
+          ? current.filter(d => d !== code)
+          : [...current, code];
+        await saveState(state);
+        render();
+      });
+      pillsEl.appendChild(pill);
     });
-    pillsEl.appendChild(pill);
-  });
+  }
 
   li.querySelector('.edit-task-btn').addEventListener('click', () => {
     showEditTaskModal(sala, func, text);
@@ -1485,6 +1490,7 @@ function collectScheduledTasks(state, filterFn){
   const results = [];
   for (const sala of Object.keys(state.seed)){
     for (const func of Object.keys(state.seed[sala])){
+      if (func === 'Compras') continue; // Compras usa estágios (Orçado/Pago/Entregue), não dias da semana
       if (!filterFn(func, sala)) continue;
       state.seed[sala][func].map(taskInfo).forEach(({ text }) => {
         const key = taskKey(func, sala, text);
@@ -1662,11 +1668,21 @@ function renderSalaDetail(state, sala, isArchivedView){
   `;
   contentEl.appendChild(progressEl);
 
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'sala-actions-row no-capture';
+  const actionsLeft = document.createElement('div');
+  actionsLeft.className = 'sala-actions-left';
+  const actionsRight = document.createElement('div');
+  actionsRight.className = 'sala-actions-right';
+  actionsRow.appendChild(actionsLeft);
+  actionsRow.appendChild(actionsRight);
+  contentEl.appendChild(actionsRow);
+
   const addBtn = document.createElement('button');
   addBtn.className = 'add-task-btn no-capture';
   addBtn.textContent = '+ Cadastrar atividade';
   addBtn.onclick = () => showAddTaskModal(sala);
-  contentEl.appendChild(addBtn);
+  actionsLeft.appendChild(addBtn);
 
   const projectRow = document.createElement('div');
   projectRow.className = 'project-link-row no-capture';
@@ -1743,7 +1759,7 @@ function renderSalaDetail(state, sala, isArchivedView){
 
   projectRow.appendChild(projectBtn);
   projectRow.appendChild(editLinkBtn);
-  contentEl.appendChild(projectRow);
+  actionsRight.appendChild(projectRow);
 
   const archiveBtn = document.createElement('button');
   archiveBtn.className = 'archive-btn no-capture';
@@ -1774,7 +1790,7 @@ function renderSalaDetail(state, sala, isArchivedView){
     activeSala = sala;
     render();
   };
-  contentEl.appendChild(archiveBtn);
+  actionsLeft.appendChild(archiveBtn);
 
   const board = document.createElement('div');
   board.className = 'sala-board';
@@ -1854,12 +1870,14 @@ function renderEmployeeDetail(state, employee){
     contentEl.appendChild(emptyEl);
   }
 
-  contentEl.appendChild(renderWeekCalendar(
-    state,
-    `Calendário semanal — ${employee}`,
-    (func, sala) => func === employee && !state.archived[sala],
-    (t) => t.sala
-  ));
+  if (employee !== 'Compras'){
+    contentEl.appendChild(renderWeekCalendar(
+      state,
+      `Calendário semanal — ${employee}`,
+      (func, sala) => func === employee && !state.archived[sala],
+      (t) => t.sala
+    ));
+  }
   contentEl.appendChild(renderCompletedList(
     state,
     `Tarefas concluídas — ${employee}`,
@@ -2178,7 +2196,7 @@ Pintar rodapé"></textarea>
       <label for="task-func-new">Nome do novo responsável</label>
       <input type="text" id="task-func-new" placeholder="Ex: Neto" />
     </div>
-    <div class="modal-field">
+    <div class="modal-field" id="task-days-field">
       <label>Dias (opcional)</label>
       <div class="modal-days">${dayButtonsHtml}</div>
     </div>
@@ -2209,6 +2227,7 @@ Pintar rodapé"></textarea>
     textMultiField.style.display = mode === 'multiplas' ? 'block' : 'none';
     confirmBtnEl.textContent = mode === 'unica' ? 'Cadastrar' : 'Cadastrar todas';
     if (mode === 'unica') textInput.focus(); else textMultiInput.focus();
+    if (typeof updateDaysVisibility === 'function') updateDaysVisibility();
   }
   modeBtnUnica.onclick = () => setMode('unica');
   modeBtnMulti.onclick = () => setMode('multiplas');
@@ -2216,9 +2235,20 @@ Pintar rodapé"></textarea>
   const funcSelect = document.getElementById('task-func-select');
   const funcNewField = document.getElementById('task-func-new-field');
   const funcNewInput = document.getElementById('task-func-new');
+  const daysField = document.getElementById('task-days-field');
+
+  function updateDaysVisibility(){
+    const isCompraNow = mode === 'unica'
+      ? (isPurchaseTask(textInput.value) || funcSelect.value === 'Compras')
+      : funcSelect.value === 'Compras';
+    daysField.style.display = isCompraNow ? 'none' : 'block';
+  }
+  textInput.addEventListener('input', updateDaysVisibility);
   funcSelect.addEventListener('change', () => {
     funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
+    updateDaysVisibility();
   });
+  updateDaysVisibility();
 
   const selectedDays = new Set();
   document.querySelectorAll('.modal-day-chip').forEach(chip => {
@@ -2316,10 +2346,12 @@ function showEditTaskModal(sala, func, text){
       <label for="edit-task-func-new">Nome do novo responsável</label>
       <input type="text" id="edit-task-func-new" placeholder="Ex: Neto" />
     </div>
+    ${func === 'Compras' ? '' : `
     <div class="modal-field">
       <label>Dias</label>
       <div class="modal-days">${dayButtonsHtml}</div>
     </div>
+    `}
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="edit-task-error"></div>
     <div class="modal-actions">
