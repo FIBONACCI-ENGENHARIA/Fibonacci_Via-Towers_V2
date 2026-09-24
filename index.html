@@ -189,6 +189,22 @@
   }
   .archive-btn:hover{border-color:var(--gold);color:var(--gold);}
 
+  .project-link-row{display:inline-flex;align-items:center;gap:6px;margin:0 10px 14px 0;}
+  .project-link-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:9px 14px;font-size:13px;font-weight:700;
+    background:transparent;border:1px solid var(--border);color:var(--text);
+    border-radius:8px;cursor:pointer;
+  }
+  .project-link-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .project-link-edit{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;background:transparent;border:1px solid var(--border);
+    color:var(--text-secondary);border-radius:8px;cursor:pointer;flex-shrink:0;
+  }
+  .project-link-edit:hover{border-color:var(--gold);color:var(--gold);}
+  .project-link-edit svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;}
+
   .modal-overlay{
     display:none;position:fixed;inset:0;background:rgba(10,10,10,0.5);
     align-items:center;justify-content:center;z-index:50;padding:16px;
@@ -204,10 +220,17 @@
     display:block;font-size:12px;font-weight:700;color:var(--text-secondary);
     margin-bottom:5px;
   }
-  .modal-field input[type="text"], .modal-field select{
+  .modal-field input[type="text"], .modal-field select, .modal-field textarea{
     width:100%;padding:9px 10px;font-size:14px;border:1px solid var(--border);
     border-radius:6px;font-family:inherit;box-sizing:border-box;background:var(--card);color:var(--text);
   }
+  .modal-field textarea{resize:vertical;line-height:1.5;}
+  .mode-toggle{display:flex;gap:6px;}
+  .mode-btn{
+    flex:1;padding:8px 10px;font-size:12.5px;font-weight:700;border-radius:6px;
+    border:1px solid var(--border);background:var(--card);color:var(--text-secondary);cursor:pointer;
+  }
+  .mode-btn.active{background:var(--gold);border-color:var(--gold);color:#fff;}
   .modal-days{display:flex;flex-wrap:wrap;gap:6px;}
   .modal-day-chip{
     font-size:12px;font-weight:600;padding:6px 10px;border-radius:6px;
@@ -855,6 +878,7 @@ async function loadStoredPayload(){
         customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
         purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
         customSalas: decodeKeyedMapFromFirebase(raw.customSalas),
+        projectLinks: decodeKeyedMapFromFirebase(raw.projectLinks),
         lastUpdated: raw.lastUpdated
       };
     }catch(e){
@@ -913,6 +937,7 @@ async function writeStoredPayload(payload){
       customSeed: encodeCustomSeedForFirebase(payload.customSeed),
       purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
       customSalas: encodeKeyedMapForFirebase(payload.customSalas),
+      projectLinks: encodeKeyedMapForFirebase(payload.projectLinks),
       lastUpdated: payload.lastUpdated
     };
     await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(fbPayload), 12000, 'Firebase: salvar');
@@ -944,21 +969,23 @@ async function loadState(){
   let storedHiddenTasks = {};
   let storedPurchaseStatus = {};
   let storedCustomSalas = {};
+  let storedProjectLinks = {};
   let lastUpdated = null;
 
   try{
     const parsed = await loadStoredPayload();
     if (parsed && parsed.done) storedDone = parsed.done;
     if (parsed && parsed.schedule) storedSchedule = parsed.schedule;
-    // customSeed/archived/hiddenTasks/purchaseStatus/customSalas são
-    // clonados (em vez de usados por referência direta) porque o objeto que
-    // volta do banco pode não ser editável — mutar ele direto falha em
+    // customSeed/archived/hiddenTasks/purchaseStatus/customSalas/projectLinks
+    // são clonados (em vez de usados por referência direta) porque o objeto
+    // que volta do banco pode não ser editável — mutar ele direto falha em
     // silêncio ou lança erro.
     if (parsed && parsed.customSeed) storedCustomSeed = JSON.parse(JSON.stringify(parsed.customSeed));
     if (parsed && parsed.archived) storedArchived = JSON.parse(JSON.stringify(parsed.archived));
     if (parsed && parsed.hiddenTasks) storedHiddenTasks = JSON.parse(JSON.stringify(parsed.hiddenTasks));
     if (parsed && parsed.purchaseStatus) storedPurchaseStatus = JSON.parse(JSON.stringify(parsed.purchaseStatus));
     if (parsed && parsed.customSalas) storedCustomSalas = JSON.parse(JSON.stringify(parsed.customSalas));
+    if (parsed && parsed.projectLinks) storedProjectLinks = JSON.parse(JSON.stringify(parsed.projectLinks));
     if (parsed && parsed.lastUpdated) lastUpdated = parsed.lastUpdated;
   }catch(e){
     // ainda não existe nada salvo para esta obra, segue com storedDone vazio
@@ -984,7 +1011,7 @@ async function loadState(){
   const state = {
     seed, customSeed: storedCustomSeed, archived: storedArchived,
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
-    customSalas: storedCustomSalas,
+    customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     done, schedule, lastUpdated
   };
   await saveState(state, false);
@@ -1187,6 +1214,7 @@ async function saveState(state, updateStamp = true){
     hiddenTasks: state.hiddenTasks,
     purchaseStatus: state.purchaseStatus,
     customSalas: state.customSalas,
+    projectLinks: state.projectLinks,
     lastUpdated: state.lastUpdated
   };
   try{
@@ -1640,6 +1668,83 @@ function renderSalaDetail(state, sala, isArchivedView){
   addBtn.onclick = () => showAddTaskModal(sala);
   contentEl.appendChild(addBtn);
 
+  const projectRow = document.createElement('div');
+  projectRow.className = 'project-link-row no-capture';
+  const projectBtn = document.createElement('button');
+  projectBtn.className = 'project-link-btn';
+  const editLinkBtn = document.createElement('button');
+  editLinkBtn.className = 'project-link-edit';
+  editLinkBtn.title = 'Trocar ou remover o link';
+  editLinkBtn.innerHTML = EDIT_ICON_SVG;
+  editLinkBtn.style.display = 'none';
+
+  function refreshProjectBtn(){
+    const link = (state.projectLinks && state.projectLinks[sala]) || '';
+    if (link){
+      projectBtn.innerHTML = '📄 Abrir projeto (PDF)';
+      editLinkBtn.style.display = 'inline-flex';
+    } else {
+      projectBtn.innerHTML = '+ Adicionar link do projeto (PDF)';
+      editLinkBtn.style.display = 'none';
+    }
+  }
+  refreshProjectBtn();
+
+  projectBtn.onclick = async () => {
+    const existing = (state.projectLinks && state.projectLinks[sala]) || '';
+    if (existing){
+      window.open(existing, '_blank', 'noopener');
+      return;
+    }
+    const url = prompt('Cole o link do Google Drive do projeto (PDF) dessa sala:\n(No Drive: botão direito no arquivo → Compartilhar → "Qualquer pessoa com o link")');
+    if (url === null) return;
+    const cleanUrl = url.trim();
+    if (!cleanUrl) return;
+    if (!/^https?:\/\//i.test(cleanUrl)){
+      alert('Isso não parece um link válido — precisa começar com http:// ou https://.');
+      return;
+    }
+    if (!state.projectLinks) state.projectLinks = {};
+    state.projectLinks[sala] = cleanUrl;
+    const ok = await saveState(state);
+    if (!ok){
+      delete state.projectLinks[sala];
+      alert('Não foi possível salvar agora. Tente novamente em instantes.');
+      return;
+    }
+    refreshProjectBtn();
+  };
+
+  editLinkBtn.onclick = async () => {
+    const current = (state.projectLinks && state.projectLinks[sala]) || '';
+    const url = prompt('Cole o novo link (ou apague tudo e confirme pra remover):', current);
+    if (url === null) return;
+    const cleanUrl = url.trim();
+    const backup = current;
+
+    if (!cleanUrl){
+      delete state.projectLinks[sala];
+    } else {
+      if (!/^https?:\/\//i.test(cleanUrl)){
+        alert('Isso não parece um link válido — precisa começar com http:// ou https://.');
+        return;
+      }
+      state.projectLinks[sala] = cleanUrl;
+    }
+
+    const ok = await saveState(state);
+    if (!ok){
+      state.projectLinks[sala] = backup;
+      alert('Não foi possível salvar agora. Tente novamente em instantes.');
+      return;
+    }
+    refreshProjectBtn();
+  };
+
+  projectRow.appendChild(projectBtn);
+  projectRow.appendChild(editLinkBtn);
+  contentEl.appendChild(projectRow);
+
   const archiveBtn = document.createElement('button');
   archiveBtn.className = 'archive-btn no-capture';
   const archiveDefaultText = isArchivedView ? 'Desarquivar sala' : 'Arquivar sala';
@@ -2045,8 +2150,22 @@ function showAddTaskModal(sala){
   openModal(`
     <h3>Cadastrar atividade — ${sala}</h3>
     <div class="modal-field">
+      <label>Modo de cadastro</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="mode-btn-unica" data-mode="unica">Única</button>
+        <button type="button" class="mode-btn" id="mode-btn-multi" data-mode="multiplas">Múltiplas</button>
+      </div>
+    </div>
+    <div class="modal-field" id="task-text-field">
       <label for="task-text">Atividade</label>
       <input type="text" id="task-text" placeholder="Ex: Instalar porta do banheiro" />
+    </div>
+    <div class="modal-field" id="task-text-multi-field" style="display:none;">
+      <label for="task-text-multi">Atividades (uma por linha)</label>
+      <textarea id="task-text-multi" rows="5" placeholder="Instalar porta do banheiro
+Instalar espelho
+Pintar rodapé"></textarea>
+      <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável e dias abaixo.</div>
     </div>
     <div class="modal-field">
       <label for="task-func-select">Responsável</label>
@@ -2072,7 +2191,27 @@ function showAddTaskModal(sala){
   `);
 
   const textInput = document.getElementById('task-text');
+  const textMultiInput = document.getElementById('task-text-multi');
   textInput.focus();
+
+  let mode = 'unica';
+  const modeBtnUnica = document.getElementById('mode-btn-unica');
+  const modeBtnMulti = document.getElementById('mode-btn-multi');
+  const textField = document.getElementById('task-text-field');
+  const textMultiField = document.getElementById('task-text-multi-field');
+  const confirmBtnEl = document.getElementById('task-confirm');
+
+  function setMode(newMode){
+    mode = newMode;
+    modeBtnUnica.classList.toggle('active', mode === 'unica');
+    modeBtnMulti.classList.toggle('active', mode === 'multiplas');
+    textField.style.display = mode === 'unica' ? 'block' : 'none';
+    textMultiField.style.display = mode === 'multiplas' ? 'block' : 'none';
+    confirmBtnEl.textContent = mode === 'unica' ? 'Cadastrar' : 'Cadastrar todas';
+    if (mode === 'unica') textInput.focus(); else textMultiInput.focus();
+  }
+  modeBtnUnica.onclick = () => setMode('unica');
+  modeBtnMulti.onclick = () => setMode('multiplas');
 
   const funcSelect = document.getElementById('task-func-select');
   const funcNewField = document.getElementById('task-func-new-field');
@@ -2099,14 +2238,26 @@ function showAddTaskModal(sala){
   document.getElementById('task-confirm').onclick = async () => {
     const errEl = document.getElementById('task-error');
     const confirmBtn = document.getElementById('task-confirm');
-    const text = textInput.value.trim();
     const chosenFunc = funcSelect.value === '__new__' ? funcNewInput.value.trim() : funcSelect.value;
 
-    if (!text){
-      errEl.textContent = 'Digite o texto da atividade.';
-      errEl.classList.add('show');
-      return;
+    let texts = [];
+    if (mode === 'unica'){
+      const t = textInput.value.trim();
+      if (!t){
+        errEl.textContent = 'Digite o texto da atividade.';
+        errEl.classList.add('show');
+        return;
+      }
+      texts = [t];
+    } else {
+      texts = textMultiInput.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      if (texts.length === 0){
+        errEl.textContent = 'Digite pelo menos uma atividade (uma por linha).';
+        errEl.classList.add('show');
+        return;
+      }
     }
+
     if (!chosenFunc){
       errEl.textContent = 'Escolha ou digite um responsável.';
       errEl.classList.add('show');
@@ -2114,14 +2265,17 @@ function showAddTaskModal(sala){
     }
 
     errEl.classList.remove('show');
+    const originalLabel = confirmBtn.textContent;
     confirmBtn.textContent = 'Salvando...';
     confirmBtn.disabled = true;
 
-    const addResult = addCustomTask(appState, sala, chosenFunc, text, Array.from(selectedDays));
+    texts.forEach(t => {
+      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays));
+    });
     const ok = await saveState(appState);
 
     if (!ok){
-      confirmBtn.textContent = 'Cadastrar';
+      confirmBtn.textContent = originalLabel;
       confirmBtn.disabled = false;
       errEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
       errEl.classList.add('show');
