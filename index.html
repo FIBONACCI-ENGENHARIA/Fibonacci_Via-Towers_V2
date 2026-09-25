@@ -339,6 +339,17 @@
   .task-item label{font-size:14px;line-height:1.4;cursor:pointer;display:block;color:var(--text);}
   .task-item.done label{color:var(--text-secondary);text-decoration:line-through;}
 
+  .task-item.needs-material{
+    background:rgba(220,38,38,0.07);border-left:3px solid #DC2626;
+    border-radius:6px;padding-left:8px;margin-left:-2px;
+  }
+  .task-item.needs-material:hover{background:rgba(220,38,38,0.12);}
+  .material-badge{
+    display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
+    color:#DC2626;background:rgba(220,38,38,0.14);padding:2px 8px;border-radius:10px;
+    margin-top:6px;
+  }
+
   .task-item-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
   .task-item-row label{flex:1;}
   .edit-task-btn{
@@ -890,6 +901,7 @@ async function loadStoredPayload(){
         archived: decodeKeyedMapFromFirebase(raw.archived),
         customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
         purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
+        materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
         customSalas: decodeKeyedMapFromFirebase(raw.customSalas),
         projectLinks: decodeKeyedMapFromFirebase(raw.projectLinks),
         lastUpdated: raw.lastUpdated
@@ -949,6 +961,7 @@ async function writeStoredPayload(payload){
       archived: encodeKeyedMapForFirebase(payload.archived),
       customSeed: encodeCustomSeedForFirebase(payload.customSeed),
       purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
+      materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
       customSalas: encodeKeyedMapForFirebase(payload.customSalas),
       projectLinks: encodeKeyedMapForFirebase(payload.projectLinks),
       lastUpdated: payload.lastUpdated
@@ -983,22 +996,24 @@ async function loadState(){
   let storedPurchaseStatus = {};
   let storedCustomSalas = {};
   let storedProjectLinks = {};
+  let storedMaterialDependency = {};
   let lastUpdated = null;
 
   try{
     const parsed = await loadStoredPayload();
     if (parsed && parsed.done) storedDone = parsed.done;
     if (parsed && parsed.schedule) storedSchedule = parsed.schedule;
-    // customSeed/archived/hiddenTasks/purchaseStatus/customSalas/projectLinks
-    // são clonados (em vez de usados por referência direta) porque o objeto
-    // que volta do banco pode não ser editável — mutar ele direto falha em
-    // silêncio ou lança erro.
+    // customSeed/archived/hiddenTasks/purchaseStatus/customSalas/projectLinks/
+    // materialDependency são clonados (em vez de usados por referência
+    // direta) porque o objeto que volta do banco pode não ser editável —
+    // mutar ele direto falha em silêncio ou lança erro.
     if (parsed && parsed.customSeed) storedCustomSeed = JSON.parse(JSON.stringify(parsed.customSeed));
     if (parsed && parsed.archived) storedArchived = JSON.parse(JSON.stringify(parsed.archived));
     if (parsed && parsed.hiddenTasks) storedHiddenTasks = JSON.parse(JSON.stringify(parsed.hiddenTasks));
     if (parsed && parsed.purchaseStatus) storedPurchaseStatus = JSON.parse(JSON.stringify(parsed.purchaseStatus));
     if (parsed && parsed.customSalas) storedCustomSalas = JSON.parse(JSON.stringify(parsed.customSalas));
     if (parsed && parsed.projectLinks) storedProjectLinks = JSON.parse(JSON.stringify(parsed.projectLinks));
+    if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
     if (parsed && parsed.lastUpdated) lastUpdated = parsed.lastUpdated;
   }catch(e){
     // ainda não existe nada salvo para esta obra, segue com storedDone vazio
@@ -1025,6 +1040,7 @@ async function loadState(){
     seed, customSeed: storedCustomSeed, archived: storedArchived,
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
+    materialDependency: storedMaterialDependency,
     done, schedule, lastUpdated
   };
   await saveState(state, false);
@@ -1111,12 +1127,22 @@ function unarchiveSala(state, sala){
   delete state.archived[sala];
 }
 
+/** Lê/marca se uma tarefa depende de material (destacada em vermelho na tela). */
+function dependsOnMaterial(state, key){
+  return !!(state.materialDependency && state.materialDependency[key]);
+}
+function setDependsOnMaterial(state, key, value){
+  if (!state.materialDependency) state.materialDependency = {};
+  if (value) state.materialDependency[key] = true;
+  else delete state.materialDependency[key];
+}
+
 /**
  * Cadastra uma atividade nova numa sala (existente ou recém-criada).
  * Aplica a regra automática: texto com "Comprar"/"Compra" vai pro
  * funcionário virtual "Compras", independente do responsável escolhido.
  */
-function addCustomTask(state, sala, func, text, days){
+function addCustomTask(state, sala, func, text, days, needsMaterial){
   const cleanText = String(text || '').trim();
   if (!cleanText) return null;
 
@@ -1132,6 +1158,7 @@ function addCustomTask(state, sala, func, text, days){
   const key = taskKey(effectiveFunc, sala, cleanText);
   state.done[key] = false;
   if (cleanDays.length) state.schedule[key] = cleanDays;
+  setDependsOnMaterial(state, key, !!needsMaterial);
 
   return { func: effectiveFunc, key, redirected: effectiveFunc === 'Compras' && effectiveFunc !== func };
 }
@@ -1155,7 +1182,7 @@ function removeFromCustomSeed(state, sala, func, text){
  * nova entrada equivalente entra no customSeed, migrando o progresso (done)
  * e o agendamento (schedule) da chave antiga pra chave nova.
  */
-function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
+function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial){
   const oldKey = taskKey(oldFunc, sala, oldText);
   const cleanText = String(newText || '').trim();
   if (!cleanText) return null;
@@ -1189,11 +1216,15 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
     if (effectiveFunc !== 'Compras'){
       delete state.purchaseStatus[newKey];
     }
+
+    setDependsOnMaterial(state, oldKey, false);
   } else if (cleanDays.length){
     state.schedule[newKey] = cleanDays;
   } else {
     delete state.schedule[newKey];
   }
+
+  setDependsOnMaterial(state, newKey, !!needsMaterial);
 
   return { func: effectiveFunc, key: newKey };
 }
@@ -1202,8 +1233,8 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days){
  * Apaga uma atividade por completo — funciona tanto pra tarefas do
  * levantamento original (BASE_SEED, que a gente não pode editar de verdade,
  * então só "esconde") quanto pra tarefas cadastradas por você (customSeed,
- * removida de fato). Limpa também o progresso, o agendamento e o status de
- * compra dela.
+ * removida de fato). Limpa também o progresso, o agendamento, o status de
+ * compra e a dependência de material dela.
  */
 function deleteTask(state, sala, func, text){
   const key = taskKey(func, sala, text);
@@ -1214,6 +1245,7 @@ function deleteTask(state, sala, func, text){
   delete state.done[key];
   delete state.schedule[key];
   if (state.purchaseStatus) delete state.purchaseStatus[key];
+  setDependsOnMaterial(state, key, false);
   return { key };
 }
 
@@ -1227,6 +1259,7 @@ async function saveState(state, updateStamp = true){
     archived: state.archived,
     hiddenTasks: state.hiddenTasks,
     purchaseStatus: state.purchaseStatus,
+    materialDependency: state.materialDependency,
     customSalas: state.customSalas,
     projectLinks: state.projectLinks,
     lastUpdated: state.lastUpdated
@@ -1401,10 +1434,12 @@ function renderTaskItem(state, func, sala, text, opts){
   opts = opts || {};
   const key = taskKey(func, sala, text);
   const isCompra = func === 'Compras';
+  const needsMaterial = dependsOnMaterial(state, key);
   const li = document.createElement('li');
-  li.className = 'task-item';
+  li.className = 'task-item' + (needsMaterial ? ' needs-material' : '');
   const inputId = 'chk_' + key.replace(/[^a-zA-Z0-9]/g, '_');
   const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
+  const materialBadgeHtml = needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : '';
   li.innerHTML = `
     ${isCompra ? '' : `<input type="checkbox" id="${inputId}" />`}
     <div class="task-item-body">
@@ -1412,6 +1447,7 @@ function renderTaskItem(state, func, sala, text, opts){
         <label${isCompra ? '' : ` for="${inputId}"`}>${contextHtml}${text}</label>
         <button type="button" class="edit-task-btn no-capture" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
+      ${materialBadgeHtml}
       ${isCompra ? '<div class="purchase-stages"></div>' : '<div class="day-pills"></div>'}
     </div>
   `;
@@ -1506,7 +1542,7 @@ function collectScheduledTasks(state, filterFn){
         const isDone = !!state.done[key];
         // tarefas concluídas saem do calendário (ficam só na lista de concluídas)
         if (days.length > 0 && !isDone){
-          results.push({ func, sala, text, key, days, done: isDone });
+          results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key) });
         }
       });
     }
@@ -1557,13 +1593,14 @@ function renderWeekCalendar(state, title, filterFn, contextLabelFn){
       body.innerHTML = '<div class="calendar-day-empty">—</div>';
     } else {
       dayTasks.forEach(t => {
-        const color = colorForEmployee(t.func);
+        const color = t.needsMaterial ? '#DC2626' : colorForEmployee(t.func);
         const chip = document.createElement('div');
-        chip.className = 'calendar-chip' + (t.done ? ' done' : '');
+        chip.className = 'calendar-chip' + (t.done ? ' done' : '') + (t.needsMaterial ? ' needs-material' : '');
         chip.style.borderLeft = `4px solid ${color}`;
-        chip.style.background = hexToRgba(color, 0.1);
+        chip.style.background = hexToRgba(color, t.needsMaterial ? 0.14 : 0.1);
         const ctx = contextLabelFn ? contextLabelFn(t) : '';
-        chip.innerHTML = (ctx ? `<span class="chip-context" style="color:${color}">${ctx}</span>` : '') + t.text;
+        const materialTag = t.needsMaterial ? '<span class="material-badge" style="margin-top:4px;">🧱 Material</span>' : '';
+        chip.innerHTML = (ctx ? `<span class="chip-context" style="color:${color}">${ctx}</span>` : '') + t.text + materialTag;
         body.appendChild(chip);
       });
     }
@@ -2296,6 +2333,14 @@ Pintar rodapé"></textarea>
       <label>Dias (opcional)</label>
       <div class="modal-days">${dayButtonsHtml}</div>
     </div>
+    <div class="modal-field">
+      <label>Depende de material?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="material-btn-nao" data-val="nao">Não</button>
+        <button type="button" class="mode-btn" id="material-btn-sim" data-val="sim">Sim</button>
+      </div>
+      <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
+    </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="task-error"></div>
     <div class="modal-actions">
@@ -2327,6 +2372,20 @@ Pintar rodapé"></textarea>
   }
   modeBtnUnica.onclick = () => setMode('unica');
   modeBtnMulti.onclick = () => setMode('multiplas');
+
+  let needsMaterial = false;
+  const materialBtnNao = document.getElementById('material-btn-nao');
+  const materialBtnSim = document.getElementById('material-btn-sim');
+  materialBtnNao.onclick = () => {
+    needsMaterial = false;
+    materialBtnNao.classList.add('active');
+    materialBtnSim.classList.remove('active');
+  };
+  materialBtnSim.onclick = () => {
+    needsMaterial = true;
+    materialBtnSim.classList.add('active');
+    materialBtnNao.classList.remove('active');
+  };
 
   const funcSelect = document.getElementById('task-func-select');
   const funcNewField = document.getElementById('task-func-new-field');
@@ -2396,7 +2455,7 @@ Pintar rodapé"></textarea>
     confirmBtn.disabled = true;
 
     texts.forEach(t => {
-      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays));
+      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial);
     });
     const ok = await saveState(appState);
 
@@ -2417,6 +2476,7 @@ function showEditTaskModal(sala, func, text){
   const employees = employeesFromSeed(appState.seed);
   const key = taskKey(func, sala, text);
   const currentDays = appState.schedule[key] || [];
+  const currentNeedsMaterial = dependsOnMaterial(appState, key);
   const optionsHtml = employees.map(emp =>
     `<option value="${emp}"${emp === func ? ' selected' : ''}>${emp}</option>`
   ).join('');
@@ -2448,6 +2508,14 @@ function showEditTaskModal(sala, func, text){
       <div class="modal-days">${dayButtonsHtml}</div>
     </div>
     `}
+    <div class="modal-field">
+      <label>Depende de material?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn${currentNeedsMaterial ? '' : ' active'}" id="edit-material-btn-nao" data-val="nao">Não</button>
+        <button type="button" class="mode-btn${currentNeedsMaterial ? ' active' : ''}" id="edit-material-btn-sim" data-val="sim">Sim</button>
+      </div>
+      <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
+    </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="edit-task-error"></div>
     <div class="modal-actions">
@@ -2493,6 +2561,20 @@ function showEditTaskModal(sala, func, text){
     funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
   });
 
+  let editNeedsMaterial = currentNeedsMaterial;
+  const editMaterialBtnNao = document.getElementById('edit-material-btn-nao');
+  const editMaterialBtnSim = document.getElementById('edit-material-btn-sim');
+  editMaterialBtnNao.onclick = () => {
+    editNeedsMaterial = false;
+    editMaterialBtnNao.classList.add('active');
+    editMaterialBtnSim.classList.remove('active');
+  };
+  editMaterialBtnSim.onclick = () => {
+    editNeedsMaterial = true;
+    editMaterialBtnSim.classList.add('active');
+    editMaterialBtnNao.classList.remove('active');
+  };
+
   const selectedDays = new Set(currentDays);
   document.querySelectorAll('.modal-day-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -2529,7 +2611,7 @@ function showEditTaskModal(sala, func, text){
     confirmBtn.textContent = 'Salvando...';
     confirmBtn.disabled = true;
 
-    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays));
+    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial);
     const ok = await saveState(appState);
 
     if (!ok){
