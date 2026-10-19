@@ -344,6 +344,16 @@
     border-radius:6px;padding-left:8px;margin-left:-2px;
   }
   .task-item.needs-material:hover{background:rgba(220,38,38,0.12);}
+  .task-item.priority > .task-item-body label,
+  .task-item.priority > .task-item-body .task-item-row label{font-weight:800;}
+  .priority-star{color:var(--gold);margin-right:4px;}
+  .calendar-chip.priority{font-weight:800;}
+  .subitem-list{list-style:none;margin:6px 0 0;padding:0 0 0 4px;border-left:2px solid var(--border, rgba(128,128,128,0.3));}
+  .subitem-list li{display:flex;align-items:flex-start;gap:8px;padding:3px 0 3px 8px;}
+  .subitem-list input[type=checkbox]{margin-top:3px;flex-shrink:0;}
+  .subitem-list label{font-size:13px;font-weight:400 !important;cursor:pointer;color:var(--text);}
+  .subitem-list li.sub-done label{text-decoration:line-through;color:var(--text-secondary);}
+  .subitem-count{font-size:10.5px;font-weight:700;color:var(--text-secondary);background:var(--card-alt);padding:2px 8px;border-radius:10px;margin-top:6px;display:inline-block;margin-right:6px;}
   .material-badge{
     display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
     color:#DC2626;background:rgba(220,38,38,0.14);padding:2px 8px;border-radius:10px;
@@ -902,6 +912,8 @@ async function loadStoredPayload(){
         customSeed: decodeCustomSeedFromFirebase(raw.customSeed),
         purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
         materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
+        priority: decodeKeyedMapFromFirebase(raw.priority),
+        subitems: decodeKeyedMapFromFirebase(raw.subitems),
         customSalas: decodeKeyedMapFromFirebase(raw.customSalas),
         projectLinks: decodeKeyedMapFromFirebase(raw.projectLinks),
         lastUpdated: raw.lastUpdated
@@ -962,6 +974,8 @@ async function writeStoredPayload(payload){
       customSeed: encodeCustomSeedForFirebase(payload.customSeed),
       purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
       materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
+      priority: encodeKeyedMapForFirebase(payload.priority),
+      subitems: encodeKeyedMapForFirebase(payload.subitems),
       customSalas: encodeKeyedMapForFirebase(payload.customSalas),
       projectLinks: encodeKeyedMapForFirebase(payload.projectLinks),
       lastUpdated: payload.lastUpdated
@@ -997,6 +1011,8 @@ async function loadState(){
   let storedCustomSalas = {};
   let storedProjectLinks = {};
   let storedMaterialDependency = {};
+  let storedPriority = {};
+  let storedSubitems = {};
   let lastUpdated = null;
 
   try{
@@ -1014,6 +1030,17 @@ async function loadState(){
     if (parsed && parsed.customSalas) storedCustomSalas = JSON.parse(JSON.stringify(parsed.customSalas));
     if (parsed && parsed.projectLinks) storedProjectLinks = JSON.parse(JSON.stringify(parsed.projectLinks));
     if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
+    if (parsed && parsed.priority) storedPriority = JSON.parse(JSON.stringify(parsed.priority));
+    if (parsed && parsed.subitems){
+      const rawSub = JSON.parse(JSON.stringify(parsed.subitems));
+      // o Firebase pode devolver listas como objeto {0:..,1:..}; normaliza pra array
+      Object.keys(rawSub).forEach(k => {
+        const arr = Array.isArray(rawSub[k]) ? rawSub[k] : Object.values(rawSub[k] || {});
+        const clean = arr.filter(x => x && typeof x.text === 'string' && x.text.trim())
+                         .map(x => ({ text: x.text, done: !!x.done }));
+        if (clean.length) storedSubitems[k] = clean;
+      });
+    }
     if (parsed && parsed.lastUpdated) lastUpdated = parsed.lastUpdated;
   }catch(e){
     // ainda não existe nada salvo para esta obra, segue com storedDone vazio
@@ -1041,6 +1068,7 @@ async function loadState(){
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     materialDependency: storedMaterialDependency,
+    priority: storedPriority, subitems: storedSubitems,
     done, schedule, lastUpdated
   };
   await saveState(state, false);
@@ -1137,12 +1165,66 @@ function setDependsOnMaterial(state, key, value){
   else delete state.materialDependency[key];
 }
 
+/** Prioridade: atividade marcada como prioritária aparece em negrito. */
+function isPriority(state, key){
+  return !!(state.priority && state.priority[key]);
+}
+function setPriority(state, key, value){
+  if (!state.priority) state.priority = {};
+  if (value) state.priority[key] = true;
+  else delete state.priority[key];
+}
+
+/** Subitens: lista [{text, done}] ligada à chave da atividade-mãe. */
+function getSubitems(state, key){
+  return (state.subitems && state.subitems[key]) || [];
+}
+function parseSubitemTexts(raw){
+  const list = Array.isArray(raw) ? raw : String(raw || '').split('\n');
+  const seen = new Set();
+  const out = [];
+  list.forEach(l => {
+    const t = String(l).trim();
+    if (t && !seen.has(t)){ seen.add(t); out.push(t); }
+  });
+  return out;
+}
+/**
+ * Define os subitens de uma atividade a partir de uma lista de textos,
+ * preservando o "feito" dos que já existiam (casando pelo texto). A atividade-mãe
+ * passa a refletir os subitens: concluída só quando todos estão concluídos.
+ */
+function setSubitems(state, key, texts){
+  if (!state.subitems) state.subitems = {};
+  const clean = parseSubitemTexts(texts);
+  if (clean.length === 0){
+    delete state.subitems[key];
+    return;
+  }
+  const previous = {};
+  getSubitems(state, key).forEach(sub => { previous[sub.text] = !!sub.done; });
+  state.subitems[key] = clean.map(t => ({ text: t, done: !!previous[t] }));
+  state.done[key] = state.subitems[key].every(sub => sub.done);
+}
+function setSubitemDone(state, key, idx, value){
+  const list = getSubitems(state, key);
+  if (!list[idx]) return;
+  list[idx].done = !!value;
+  state.done[key] = list.every(sub => sub.done);
+}
+/** Marcar/desmarcar a atividade-mãe replica o valor em todos os subitens. */
+function setTaskDoneWithSubitems(state, key, value){
+  const list = getSubitems(state, key);
+  list.forEach(sub => { sub.done = !!value; });
+  setTaskDone(state, key, value);
+}
+
 /**
  * Cadastra uma atividade nova numa sala (existente ou recém-criada).
  * Aplica a regra automática: texto com "Comprar"/"Compra" vai pro
  * funcionário virtual "Compras", independente do responsável escolhido.
  */
-function addCustomTask(state, sala, func, text, days, needsMaterial){
+function addCustomTask(state, sala, func, text, days, needsMaterial, priority, subitemTexts){
   const cleanText = String(text || '').trim();
   if (!cleanText) return null;
 
@@ -1159,6 +1241,8 @@ function addCustomTask(state, sala, func, text, days, needsMaterial){
   state.done[key] = false;
   if (cleanDays.length) state.schedule[key] = cleanDays;
   setDependsOnMaterial(state, key, !!needsMaterial);
+  setPriority(state, key, !!priority);
+  if (effectiveFunc !== 'Compras') setSubitems(state, key, subitemTexts);
 
   return { func: effectiveFunc, key, redirected: effectiveFunc === 'Compras' && effectiveFunc !== func };
 }
@@ -1182,7 +1266,7 @@ function removeFromCustomSeed(state, sala, func, text){
  * nova entrada equivalente entra no customSeed, migrando o progresso (done)
  * e o agendamento (schedule) da chave antiga pra chave nova.
  */
-function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial){
+function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial, priority, subitemTexts){
   const oldKey = taskKey(oldFunc, sala, oldText);
   const cleanText = String(newText || '').trim();
   if (!cleanText) return null;
@@ -1218,6 +1302,11 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
     }
 
     setDependsOnMaterial(state, oldKey, false);
+    setPriority(state, oldKey, false);
+    if (state.subitems){
+      if (state.subitems[oldKey]) state.subitems[newKey] = state.subitems[oldKey];
+      delete state.subitems[oldKey];
+    }
   } else if (cleanDays.length){
     state.schedule[newKey] = cleanDays;
   } else {
@@ -1225,6 +1314,13 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
   }
 
   setDependsOnMaterial(state, newKey, !!needsMaterial);
+  setPriority(state, newKey, !!priority);
+  // subitens: só pra quem não é Compras; undefined = não mexe nos existentes
+  if (effectiveFunc === 'Compras'){
+    if (state.subitems) delete state.subitems[newKey];
+  } else if (subitemTexts !== undefined){
+    setSubitems(state, newKey, subitemTexts);
+  }
 
   return { func: effectiveFunc, key: newKey };
 }
@@ -1246,6 +1342,8 @@ function deleteTask(state, sala, func, text){
   delete state.schedule[key];
   if (state.purchaseStatus) delete state.purchaseStatus[key];
   setDependsOnMaterial(state, key, false);
+  setPriority(state, key, false);
+  if (state.subitems) delete state.subitems[key];
   return { key };
 }
 
@@ -1260,6 +1358,8 @@ async function saveState(state, updateStamp = true){
     hiddenTasks: state.hiddenTasks,
     purchaseStatus: state.purchaseStatus,
     materialDependency: state.materialDependency,
+    priority: state.priority,
+    subitems: state.subitems,
     customSalas: state.customSalas,
     projectLinks: state.projectLinks,
     lastUpdated: state.lastUpdated
@@ -1436,7 +1536,9 @@ function renderTaskItem(state, func, sala, text, opts){
   const isCompra = func === 'Compras';
   const needsMaterial = dependsOnMaterial(state, key);
   const li = document.createElement('li');
-  li.className = 'task-item' + (needsMaterial ? ' needs-material' : '');
+  const priorityOn = isPriority(state, key);
+  const subs = isCompra ? [] : getSubitems(state, key);
+  li.className = 'task-item' + (needsMaterial ? ' needs-material' : '') + (priorityOn ? ' priority' : '');
   const inputId = 'chk_' + key.replace(/[^a-zA-Z0-9]/g, '_');
   const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
   const materialBadgeHtml = needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : '';
@@ -1448,6 +1550,8 @@ function renderTaskItem(state, func, sala, text, opts){
         <button type="button" class="edit-task-btn no-capture" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
       ${materialBadgeHtml}
+      ${subs.length ? `<span class="subitem-count">${subs.filter(x => x.done).length}/${subs.length} subitens</span>` : ''}
+      ${subs.length ? '<ul class="subitem-list"></ul>' : ''}
       ${isCompra ? '<div class="purchase-stages"></div>' : '<div class="day-pills"></div>'}
     </div>
   `;
@@ -1470,10 +1574,26 @@ function renderTaskItem(state, func, sala, text, opts){
   } else {
     const checkbox = li.querySelector('input');
     checkbox.addEventListener('change', async () => {
-      setTaskDone(state, key, checkbox.checked);
+      setTaskDoneWithSubitems(state, key, checkbox.checked);
       await saveState(state);
       render();
     });
+
+    const subListEl = li.querySelector('.subitem-list');
+    if (subListEl){
+      subs.forEach((sub, idx) => {
+        const subLi = document.createElement('li');
+        subLi.className = sub.done ? 'sub-done' : '';
+        const subId = inputId + '_sub' + idx;
+        subLi.innerHTML = `<input type="checkbox" id="${subId}"${sub.done ? ' checked' : ''} /><label for="${subId}">${sub.text}</label>`;
+        subLi.querySelector('input').addEventListener('change', async (ev) => {
+          setSubitemDone(state, key, idx, ev.target.checked);
+          await saveState(state);
+          render();
+        });
+        subListEl.appendChild(subLi);
+      });
+    }
 
     const pillsEl = li.querySelector('.day-pills');
     const scheduled = state.schedule[key] || [];
@@ -1542,7 +1662,7 @@ function collectScheduledTasks(state, filterFn){
         const isDone = !!state.done[key];
         // tarefas concluídas saem do calendário (ficam só na lista de concluídas)
         if (days.length > 0 && !isDone){
-          results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key) });
+          results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key), priority: isPriority(state, key) });
         }
       });
     }
@@ -1595,7 +1715,7 @@ function renderWeekCalendar(state, title, filterFn, contextLabelFn){
       dayTasks.forEach(t => {
         const color = t.needsMaterial ? '#DC2626' : colorForEmployee(t.func);
         const chip = document.createElement('div');
-        chip.className = 'calendar-chip' + (t.done ? ' done' : '') + (t.needsMaterial ? ' needs-material' : '');
+        chip.className = 'calendar-chip' + (t.done ? ' done' : '') + (t.needsMaterial ? ' needs-material' : '') + (t.priority ? ' priority' : '');
         chip.style.borderLeft = `4px solid ${color}`;
         chip.style.background = hexToRgba(color, t.needsMaterial ? 0.14 : 0.1);
         const ctx = contextLabelFn ? contextLabelFn(t) : '';
@@ -1643,7 +1763,7 @@ function renderPurchaseBoard(state){
       if (state.done[key]) return; // já entregue — fica só na lista de concluídas
       const status = getPurchaseStatus(state, key);
       const col = status.pago ? 'pago' : (status.orcado ? 'orcado' : 'solicitado');
-      grouped[col].push({ sala, text });
+      grouped[col].push({ sala, text, priority: isPriority(state, key) });
     });
   });
 
@@ -1680,10 +1800,10 @@ function renderPurchaseBoard(state){
     if (items.length === 0){
       body.innerHTML = '<div class="calendar-day-empty">—</div>';
     } else {
-      items.forEach(({ sala, text }) => {
+      items.forEach(({ sala, text, priority }) => {
         const color = colorForEmployee(sala);
         const chip = document.createElement('div');
-        chip.className = 'calendar-chip';
+        chip.className = 'calendar-chip' + (priority ? ' priority' : '');
         chip.style.borderLeft = `4px solid ${color}`;
         chip.style.background = hexToRgba(color, 0.1);
         chip.innerHTML = `<span class="chip-context" style="color:${color}">${sala}</span>${text}`;
@@ -1739,13 +1859,15 @@ function renderCompletedList(state, title, filterFn, contextLabelFn){
   doneTasks.forEach(({ func, sala, text, key }) => {
     const isCompra = func === 'Compras';
     const li = document.createElement('li');
-    li.className = 'task-item done';
+    const doneSubs = isCompra ? [] : getSubitems(state, key);
+    li.className = 'task-item done' + (isPriority(state, key) ? ' priority' : '');
     const inputId = 'chk_done_' + key.replace(/[^a-zA-Z0-9]/g, '_');
     const ctx = contextLabelFn ? contextLabelFn({ func, sala }) : '';
     li.innerHTML = `
       ${isCompra ? '' : `<input type="checkbox" id="${inputId}" checked />`}
       <div class="task-item-body">
         <label${isCompra ? '' : ` for="${inputId}"`}>${ctx ? `<span class="chip-context" style="display:block;">${ctx}</span>` : ''}${text}</label>
+        ${doneSubs.length ? `<ul class="subitem-list">${doneSubs.map(sub => `<li class="sub-done"><label>${sub.text}</label></li>`).join('')}</ul>` : ''}
         ${isCompra ? '<div class="purchase-stages"></div>' : ''}
       </div>
     `;
@@ -1767,7 +1889,7 @@ function renderCompletedList(state, title, filterFn, contextLabelFn){
     } else {
       const checkbox = li.querySelector('input');
       checkbox.addEventListener('change', async () => {
-        setTaskDone(state, key, checkbox.checked);
+        setTaskDoneWithSubitems(state, key, checkbox.checked);
         await saveState(state);
         render();
       });
@@ -2318,6 +2440,13 @@ Instalar espelho
 Pintar rodapé"></textarea>
       <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável e dias abaixo.</div>
     </div>
+    <div class="modal-field" id="task-subitems-field">
+      <label for="task-subitems">Subitens (opcional, um por linha)</label>
+      <textarea id="task-subitems" rows="4" placeholder="Finalizar perfis
+Finalizar vigas
+Finalizar embutidos"></textarea>
+      <div class="modal-hint">A atividade só fica concluída quando todos os subitens estiverem marcados.</div>
+    </div>
     <div class="modal-field">
       <label for="task-func-select">Responsável</label>
       <select id="task-func-select">
@@ -2340,6 +2469,14 @@ Pintar rodapé"></textarea>
         <button type="button" class="mode-btn" id="material-btn-sim" data-val="sim">Sim</button>
       </div>
       <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
+    </div>
+    <div class="modal-field">
+      <label>Prioridade?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="priority-btn-nao" data-val="nao">Não</button>
+        <button type="button" class="mode-btn" id="priority-btn-sim" data-val="sim">Sim</button>
+      </div>
+      <div class="modal-hint">Atividades prioritárias aparecem em negrito.</div>
     </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="task-error"></div>
@@ -2387,16 +2524,34 @@ Pintar rodapé"></textarea>
     materialBtnNao.classList.remove('active');
   };
 
+  let priorityOn = false;
+  const priorityBtnNao = document.getElementById('priority-btn-nao');
+  const priorityBtnSim = document.getElementById('priority-btn-sim');
+  priorityBtnNao.onclick = () => {
+    priorityOn = false;
+    priorityBtnNao.classList.add('active');
+    priorityBtnSim.classList.remove('active');
+  };
+  priorityBtnSim.onclick = () => {
+    priorityOn = true;
+    priorityBtnSim.classList.add('active');
+    priorityBtnNao.classList.remove('active');
+  };
+
   const funcSelect = document.getElementById('task-func-select');
   const funcNewField = document.getElementById('task-func-new-field');
   const funcNewInput = document.getElementById('task-func-new');
   const daysField = document.getElementById('task-days-field');
+  const subitemsField = document.getElementById('task-subitems-field');
+  const subitemsInput = document.getElementById('task-subitems');
 
   function updateDaysVisibility(){
     const isCompraNow = mode === 'unica'
       ? (isPurchaseTask(textInput.value) || funcSelect.value === 'Compras')
       : funcSelect.value === 'Compras';
     daysField.style.display = isCompraNow ? 'none' : 'block';
+    // subitens só no modo "Única" e fora de Compras
+    subitemsField.style.display = (mode === 'unica' && !isCompraNow) ? 'block' : 'none';
   }
   textInput.addEventListener('input', updateDaysVisibility);
   funcSelect.addEventListener('change', () => {
@@ -2454,8 +2609,9 @@ Pintar rodapé"></textarea>
     confirmBtn.textContent = 'Salvando...';
     confirmBtn.disabled = true;
 
+    const subTexts = mode === 'unica' ? parseSubitemTexts(subitemsInput.value) : [];
     texts.forEach(t => {
-      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial);
+      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial, priorityOn, subTexts);
     });
     const ok = await saveState(appState);
 
@@ -2477,6 +2633,8 @@ function showEditTaskModal(sala, func, text){
   const key = taskKey(func, sala, text);
   const currentDays = appState.schedule[key] || [];
   const currentNeedsMaterial = dependsOnMaterial(appState, key);
+  const currentPriority = isPriority(appState, key);
+  const currentSubitemsText = getSubitems(appState, key).map(x => x.text).join('\n');
   const optionsHtml = employees.map(emp =>
     `<option value="${emp}"${emp === func ? ' selected' : ''}>${emp}</option>`
   ).join('');
@@ -2491,6 +2649,14 @@ function showEditTaskModal(sala, func, text){
       <label for="edit-task-text">Atividade</label>
       <input type="text" id="edit-task-text" value="${escapedText}" />
     </div>
+    ${func === 'Compras' ? '' : `
+    <div class="modal-field">
+      <label for="edit-task-subitems">Subitens (um por linha)</label>
+      <textarea id="edit-task-subitems" rows="4" placeholder="Finalizar perfis
+Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
+      <div class="modal-hint">Apagar uma linha remove o subitem. Subitens já marcados continuam marcados.</div>
+    </div>
+    `}
     <div class="modal-field">
       <label for="edit-task-func-select">Responsável</label>
       <select id="edit-task-func-select">
@@ -2515,6 +2681,14 @@ function showEditTaskModal(sala, func, text){
         <button type="button" class="mode-btn${currentNeedsMaterial ? ' active' : ''}" id="edit-material-btn-sim" data-val="sim">Sim</button>
       </div>
       <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
+    </div>
+    <div class="modal-field">
+      <label>Prioridade?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn${currentPriority ? '' : ' active'}" id="edit-priority-btn-nao" data-val="nao">Não</button>
+        <button type="button" class="mode-btn${currentPriority ? ' active' : ''}" id="edit-priority-btn-sim" data-val="sim">Sim</button>
+      </div>
+      <div class="modal-hint">Atividades prioritárias aparecem em negrito.</div>
     </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="edit-task-error"></div>
@@ -2575,6 +2749,20 @@ function showEditTaskModal(sala, func, text){
     editMaterialBtnNao.classList.remove('active');
   };
 
+  let editPriority = currentPriority;
+  const editPriorityBtnNao = document.getElementById('edit-priority-btn-nao');
+  const editPriorityBtnSim = document.getElementById('edit-priority-btn-sim');
+  editPriorityBtnNao.onclick = () => {
+    editPriority = false;
+    editPriorityBtnNao.classList.add('active');
+    editPriorityBtnSim.classList.remove('active');
+  };
+  editPriorityBtnSim.onclick = () => {
+    editPriority = true;
+    editPriorityBtnSim.classList.add('active');
+    editPriorityBtnNao.classList.remove('active');
+  };
+
   const selectedDays = new Set(currentDays);
   document.querySelectorAll('.modal-day-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -2611,7 +2799,9 @@ function showEditTaskModal(sala, func, text){
     confirmBtn.textContent = 'Salvando...';
     confirmBtn.disabled = true;
 
-    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial);
+    const editSubInput = document.getElementById('edit-task-subitems');
+    const editSubTexts = editSubInput ? parseSubitemTexts(editSubInput.value) : undefined;
+    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial, editPriority, editSubTexts);
     const ok = await saveState(appState);
 
     if (!ok){
