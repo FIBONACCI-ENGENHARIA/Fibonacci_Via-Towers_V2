@@ -223,6 +223,15 @@
     -webkit-overflow-scrolling:touch;
   }
   .modal-card h3{margin:0 0 16px;font-size:16px;font-weight:700;color:var(--text);}
+  .modal-card.wide{max-width:860px;}
+  .modal-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 26px;align-items:start;}
+  .modal-col{min-width:0;}
+  .modal-row2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+  .modal-row2 .modal-hint{margin-top:5px;}
+  .modal-card.wide .modal-field textarea{min-height:0;}
+  @media (max-width: 720px){
+    .modal-cols, .modal-row2{grid-template-columns:1fr;}
+  }
   .modal-field{margin-bottom:14px;}
   .modal-field label{
     display:block;font-size:12px;font-weight:700;color:var(--text-secondary);
@@ -2476,7 +2485,8 @@ function closeModal(){
   document.getElementById('modal-card').innerHTML = '';
 }
 
-function openModal(html){
+function openModal(html, wide){
+  document.getElementById('modal-card').classList.toggle('wide', !!wide);
   document.getElementById('modal-card').innerHTML = html;
   document.getElementById('modal-overlay').classList.add('show');
 }
@@ -2553,61 +2563,69 @@ function showAddTaskModal(sala){
 
   openModal(`
     <h3>Cadastrar atividade — ${sala}</h3>
-    <div class="modal-field">
-      <label>Modo de cadastro</label>
-      <div class="mode-toggle">
-        <button type="button" class="mode-btn active" id="mode-btn-unica" data-mode="unica">Única</button>
-        <button type="button" class="mode-btn" id="mode-btn-multi" data-mode="multiplas">Múltiplas</button>
-      </div>
-    </div>
-    <div class="modal-field" id="task-text-field">
-      <label for="task-text">Atividade</label>
-      <input type="text" id="task-text" placeholder="Ex: Instalar porta do banheiro" />
-    </div>
-    <div class="modal-field" id="task-text-multi-field" style="display:none;">
-      <label for="task-text-multi">Atividades (uma por linha)</label>
-      <textarea id="task-text-multi" rows="5" placeholder="Instalar porta do banheiro
+    <div class="modal-cols">
+      <div class="modal-col">
+        <div class="modal-field">
+          <label>Modo de cadastro</label>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" id="mode-btn-unica" data-mode="unica">Única</button>
+            <button type="button" class="mode-btn" id="mode-btn-multi" data-mode="multiplas">Múltiplas</button>
+          </div>
+        </div>
+        <div class="modal-field" id="task-text-field">
+          <label for="task-text">Atividade</label>
+          <input type="text" id="task-text" placeholder="Ex: Instalar porta do banheiro" />
+        </div>
+        <div class="modal-field" id="task-text-multi-field" style="display:none;">
+          <label for="task-text-multi">Atividades (uma por linha)</label>
+          <textarea id="task-text-multi" rows="6" placeholder="Instalar porta do banheiro
 Instalar espelho
 Pintar rodapé"></textarea>
-      <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável e dias abaixo.</div>
-    </div>
-    <div class="modal-field" id="task-subitems-field">
-      <label for="task-subitems">Subitens (opcional, um por linha)</label>
-      <textarea id="task-subitems" rows="4" placeholder="Finalizar perfis
+          <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável e dias.</div>
+        </div>
+        <div class="modal-field" id="task-subitems-field">
+          <label for="task-subitems">Subitens (opcional, um por linha)</label>
+          <textarea id="task-subitems" rows="4" placeholder="Finalizar perfis
 Finalizar vigas
 Finalizar embutidos"></textarea>
-      <div class="modal-hint">A atividade só fica concluída quando todos os subitens estiverem marcados.</div>
-    </div>
-    <div class="modal-field">
-      <label for="task-func-select">Responsável</label>
-      <select id="task-func-select">
-        ${optionsHtml}
-        <option value="__new__">Outro (digitar nome novo)</option>
-      </select>
-    </div>
-    <div class="modal-field" id="task-func-new-field" style="display:none;">
-      <label for="task-func-new">Nome do novo responsável</label>
-      <input type="text" id="task-func-new" placeholder="Ex: Neto" />
-    </div>
-    <div class="modal-field" id="task-days-field">
-      <label>Dias (opcional)</label>
-      <div class="modal-days">${dayButtonsHtml}</div>
-    </div>
-    <div class="modal-field">
-      <label>Depende de material?</label>
-      <div class="mode-toggle">
-        <button type="button" class="mode-btn active" id="material-btn-nao" data-val="nao">Não</button>
-        <button type="button" class="mode-btn" id="material-btn-sim" data-val="sim">Sim</button>
+          <div class="modal-hint">Só fica concluída quando todos os subitens estiverem marcados.</div>
+        </div>
       </div>
-      <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
-    </div>
-    <div class="modal-field">
-      <label>Prioridade?</label>
-      <div class="mode-toggle">
-        <button type="button" class="mode-btn active" id="priority-btn-nao" data-val="nao">Não</button>
-        <button type="button" class="mode-btn" id="priority-btn-sim" data-val="sim">Sim</button>
+      <div class="modal-col">
+        <div class="modal-field">
+          <label for="task-func-select">Responsável</label>
+          <select id="task-func-select">
+            ${optionsHtml}
+            <option value="__new__">Outro (digitar nome novo)</option>
+          </select>
+        </div>
+        <div class="modal-field" id="task-func-new-field" style="display:none;">
+          <label for="task-func-new">Nome do novo responsável</label>
+          <input type="text" id="task-func-new" placeholder="Ex: Neto" />
+        </div>
+        <div class="modal-field" id="task-days-field">
+          <label>Dias (opcional)</label>
+          <div class="modal-days">${dayButtonsHtml}</div>
+        </div>
+        <div class="modal-row2">
+          <div class="modal-field">
+            <label>Depende de material?</label>
+            <div class="mode-toggle">
+              <button type="button" class="mode-btn active" id="material-btn-nao" data-val="nao">Não</button>
+              <button type="button" class="mode-btn" id="material-btn-sim" data-val="sim">Sim</button>
+            </div>
+            <div class="modal-hint">"Sim" destaca em vermelho.</div>
+          </div>
+          <div class="modal-field">
+            <label>Prioridade?</label>
+            <div class="mode-toggle">
+              <button type="button" class="mode-btn active" id="priority-btn-nao" data-val="nao">Não</button>
+              <button type="button" class="mode-btn" id="priority-btn-sim" data-val="sim">Sim</button>
+            </div>
+            <div class="modal-hint">"Sim" deixa em negrito.</div>
+          </div>
+        </div>
       </div>
-      <div class="modal-hint">Atividades prioritárias aparecem em negrito.</div>
     </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="task-error"></div>
@@ -2615,7 +2633,7 @@ Finalizar embutidos"></textarea>
       <button class="modal-btn modal-btn-cancel" id="task-cancel">Cancelar</button>
       <button class="modal-btn modal-btn-confirm" id="task-confirm">Cadastrar</button>
     </div>
-  `);
+  `, true);
 
   const textInput = document.getElementById('task-text');
   const textMultiInput = document.getElementById('task-text-multi');
@@ -2776,50 +2794,58 @@ function showEditTaskModal(sala, func, text){
 
   openModal(`
     <h3>Editar atividade — ${sala}</h3>
-    <div class="modal-field">
-      <label for="edit-task-text">Atividade</label>
-      <input type="text" id="edit-task-text" value="${escapedText}" />
-    </div>
-    ${func === 'Compras' ? '' : `
-    <div class="modal-field">
-      <label for="edit-task-subitems">Subitens (um por linha)</label>
-      <textarea id="edit-task-subitems" rows="4" placeholder="Finalizar perfis
+    <div class="modal-cols">
+      <div class="modal-col">
+        <div class="modal-field">
+          <label for="edit-task-text">Atividade</label>
+          <input type="text" id="edit-task-text" value="${escapedText}" />
+        </div>
+        ${func === 'Compras' ? '' : `
+        <div class="modal-field">
+          <label for="edit-task-subitems">Subitens (um por linha)</label>
+          <textarea id="edit-task-subitems" rows="5" placeholder="Finalizar perfis
 Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
-      <div class="modal-hint">Apagar uma linha remove o subitem. Subitens já marcados continuam marcados.</div>
-    </div>
-    `}
-    <div class="modal-field">
-      <label for="edit-task-func-select">Responsável</label>
-      <select id="edit-task-func-select">
-        ${optionsHtml}
-        <option value="__new__">Outro (digitar nome novo)</option>
-      </select>
-    </div>
-    <div class="modal-field" id="edit-task-func-new-field" style="display:none;">
-      <label for="edit-task-func-new">Nome do novo responsável</label>
-      <input type="text" id="edit-task-func-new" placeholder="Ex: Neto" />
-    </div>
-    ${func === 'Compras' ? '' : `
-    <div class="modal-field">
-      <label>Dias</label>
-      <div class="modal-days">${dayButtonsHtml}</div>
-    </div>
-    `}
-    <div class="modal-field">
-      <label>Depende de material?</label>
-      <div class="mode-toggle">
-        <button type="button" class="mode-btn${currentNeedsMaterial ? '' : ' active'}" id="edit-material-btn-nao" data-val="nao">Não</button>
-        <button type="button" class="mode-btn${currentNeedsMaterial ? ' active' : ''}" id="edit-material-btn-sim" data-val="sim">Sim</button>
+          <div class="modal-hint">Apagar uma linha remove o subitem. Os já marcados continuam marcados.</div>
+        </div>
+        `}
       </div>
-      <div class="modal-hint">Atividades marcadas "Sim" aparecem destacadas em vermelho pra você e pro prestador.</div>
-    </div>
-    <div class="modal-field">
-      <label>Prioridade?</label>
-      <div class="mode-toggle">
-        <button type="button" class="mode-btn${currentPriority ? '' : ' active'}" id="edit-priority-btn-nao" data-val="nao">Não</button>
-        <button type="button" class="mode-btn${currentPriority ? ' active' : ''}" id="edit-priority-btn-sim" data-val="sim">Sim</button>
+      <div class="modal-col">
+        <div class="modal-field">
+          <label for="edit-task-func-select">Responsável</label>
+          <select id="edit-task-func-select">
+            ${optionsHtml}
+            <option value="__new__">Outro (digitar nome novo)</option>
+          </select>
+        </div>
+        <div class="modal-field" id="edit-task-func-new-field" style="display:none;">
+          <label for="edit-task-func-new">Nome do novo responsável</label>
+          <input type="text" id="edit-task-func-new" placeholder="Ex: Neto" />
+        </div>
+        ${func === 'Compras' ? '' : `
+        <div class="modal-field">
+          <label>Dias</label>
+          <div class="modal-days">${dayButtonsHtml}</div>
+        </div>
+        `}
+        <div class="modal-row2">
+          <div class="modal-field">
+            <label>Depende de material?</label>
+            <div class="mode-toggle">
+              <button type="button" class="mode-btn${currentNeedsMaterial ? '' : ' active'}" id="edit-material-btn-nao" data-val="nao">Não</button>
+              <button type="button" class="mode-btn${currentNeedsMaterial ? ' active' : ''}" id="edit-material-btn-sim" data-val="sim">Sim</button>
+            </div>
+            <div class="modal-hint">"Sim" destaca em vermelho.</div>
+          </div>
+          <div class="modal-field">
+            <label>Prioridade?</label>
+            <div class="mode-toggle">
+              <button type="button" class="mode-btn${currentPriority ? '' : ' active'}" id="edit-priority-btn-nao" data-val="nao">Não</button>
+              <button type="button" class="mode-btn${currentPriority ? ' active' : ''}" id="edit-priority-btn-sim" data-val="sim">Sim</button>
+            </div>
+            <div class="modal-hint">"Sim" deixa em negrito.</div>
+          </div>
+        </div>
       </div>
-      <div class="modal-hint">Atividades prioritárias aparecem em negrito.</div>
     </div>
     <div class="modal-hint">Atividades com "Comprar"/"Compra" no texto vão automaticamente pra aba Compras.</div>
     <div class="modal-error" id="edit-task-error"></div>
@@ -2829,7 +2855,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
       <button class="modal-btn modal-btn-cancel" id="edit-task-cancel">Cancelar</button>
       <button class="modal-btn modal-btn-confirm" id="edit-task-confirm">Salvar alterações</button>
     </div>
-  `);
+  `, true);
 
   const textInput = document.getElementById('edit-task-text');
   textInput.focus();
