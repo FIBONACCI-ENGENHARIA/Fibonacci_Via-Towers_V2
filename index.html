@@ -219,6 +219,8 @@
   .modal-card{
     background:var(--card);border-radius:12px;max-width:420px;width:100%;
     padding:22px;box-shadow:0 12px 40px rgba(0,0,0,0.25);
+    max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
   }
   .modal-card h3{margin:0 0 16px;font-size:16px;font-weight:700;color:var(--text);}
   .modal-field{margin-bottom:14px;}
@@ -268,7 +270,12 @@
     color:#1a7a3c;font-size:13px;margin-top:10px;display:none;font-weight:700;text-align:center;
   }
   .quick-success.show{display:block;}
-  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+  .modal-actions{
+    display:flex;justify-content:flex-end;gap:10px;margin-top:18px;
+    position:sticky;bottom:-22px;background:var(--card);
+    padding:12px 0 22px;margin-bottom:-22px;z-index:2;
+    border-top:1px solid var(--border, rgba(128,128,128,0.2));
+  }
   .modal-btn{
     padding:9px 16px;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;border:none;
   }
@@ -502,6 +509,7 @@
 
   <footer id="footer">Carregando...</footer>
   <footer id="diag-info" style="opacity:0.6;font-size:10.5px;">[diagnóstico] carregando...</footer>
+  <footer id="backup-bar" class="no-capture" style="padding-top:0;"></footer>
 </div>
 
 <div class="modal-overlay no-capture" id="modal-overlay">
@@ -552,6 +560,10 @@ document.getElementById('theme-toggle-btn').addEventListener('click', () => {
 initTheme();
 
 const STORAGE_KEY = 'checklist:obras-fibonacci';
+// Muda a cada vez que a estrutura da página é atualizada. Na primeira vez que
+// uma versão nova abre, o app guarda uma cópia de segurança dos dados ANTES
+// de mexer em qualquer coisa.
+const APP_VERSION = '2026-10-20-a';
 
 // dados originais levantados (sala -> funcionario -> [tarefas])
 const BASE_SEED = {
@@ -913,6 +925,9 @@ async function loadStoredPayload(){
         purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
         materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
         priority: decodeKeyedMapFromFirebase(raw.priority),
+        orphanDone: decodeKeyedMapFromFirebase(raw.orphanDone),
+        orphanSchedule: decodeScheduleFromFirebase(raw.orphanSchedule),
+        appVersion: raw.appVersion,
         subitems: decodeKeyedMapFromFirebase(raw.subitems),
         customSalas: decodeKeyedMapFromFirebase(raw.customSalas),
         projectLinks: decodeKeyedMapFromFirebase(raw.projectLinks),
@@ -975,6 +990,9 @@ async function writeStoredPayload(payload){
       purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
       materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
       priority: encodeKeyedMapForFirebase(payload.priority),
+      orphanDone: encodeKeyedMapForFirebase(payload.orphanDone),
+      orphanSchedule: encodeScheduleForFirebase(payload.orphanSchedule),
+      appVersion: payload.appVersion,
       subitems: encodeKeyedMapForFirebase(payload.subitems),
       customSalas: encodeKeyedMapForFirebase(payload.customSalas),
       projectLinks: encodeKeyedMapForFirebase(payload.projectLinks),
@@ -1001,6 +1019,54 @@ async function writeStoredPayload(payload){
   throw new Error('Nenhum backend de armazenamento disponível nesta visualização.');
 }
 
+/**
+ * Cópias de segurança automáticas (só no Firebase). Copia o nó atual, do jeito
+ * que está salvo, para backups/<chave>/<rótulo>. Nunca sobrescreve um backup
+ * que já existe com o mesmo rótulo e nunca bloqueia o app se falhar.
+ */
+async function fbBackupOnce(label){
+  const fbDb = getFirebaseDb();
+  if (!fbDb) return false;
+  try{
+    const dest = fbDb.ref('backups/' + STORAGE_KEY + '/' + label);
+    const existing = await withTimeout(dest.once('value'), 12000, 'Firebase: checar backup');
+    if (existing.val()) return false;
+    const snap = await withTimeout(fbDb.ref('state/' + STORAGE_KEY).once('value'), 12000, 'Firebase: ler p/ backup');
+    const raw = snap.val();
+    if (!raw) return false;
+    await withTimeout(dest.set(raw), 12000, 'Firebase: gravar backup');
+    return true;
+  }catch(e){
+    console.warn('Backup automático falhou', e);
+    return false;
+  }
+}
+function todayLabel(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return 'dia_' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+function buildPayload(state){
+  return {
+    done: state.done,
+    schedule: state.schedule,
+    customSeed: state.customSeed,
+    archived: state.archived,
+    hiddenTasks: state.hiddenTasks,
+    purchaseStatus: state.purchaseStatus,
+    materialDependency: state.materialDependency,
+    priority: state.priority,
+    subitems: state.subitems,
+    orphanDone: state.orphanDone,
+    orphanSchedule: state.orphanSchedule,
+    customSalas: state.customSalas,
+    projectLinks: state.projectLinks,
+    appVersion: APP_VERSION,
+    lastUpdated: state.lastUpdated
+  };
+}
+
 async function loadState(){
   let storedDone = {};
   let storedSchedule = {};
@@ -1012,6 +1078,10 @@ async function loadState(){
   let storedProjectLinks = {};
   let storedMaterialDependency = {};
   let storedPriority = {};
+  let storedOrphanDone = {};
+  let storedOrphanSchedule = {};
+  let storedAppVersion = null;
+  let hadStoredData = false;
   let storedSubitems = {};
   let lastUpdated = null;
 
@@ -1031,6 +1101,10 @@ async function loadState(){
     if (parsed && parsed.projectLinks) storedProjectLinks = JSON.parse(JSON.stringify(parsed.projectLinks));
     if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
     if (parsed && parsed.priority) storedPriority = JSON.parse(JSON.stringify(parsed.priority));
+    if (parsed && parsed.orphanDone) storedOrphanDone = JSON.parse(JSON.stringify(parsed.orphanDone));
+    if (parsed && parsed.orphanSchedule) storedOrphanSchedule = JSON.parse(JSON.stringify(parsed.orphanSchedule));
+    if (parsed && parsed.appVersion) storedAppVersion = parsed.appVersion;
+    hadStoredData = !!(parsed && parsed.done && Object.keys(parsed.done).length);
     if (parsed && parsed.subitems){
       const rawSub = JSON.parse(JSON.stringify(parsed.subitems));
       // o Firebase pode devolver listas como objeto {0:..,1:..}; normaliza pra array
@@ -1054,13 +1128,39 @@ async function loadState(){
   // func|sala|texto), pra sobreviver a reorganizações sem perder marcações.
   const seed = mergeSeed(BASE_SEED, storedCustomSeed, storedHiddenTasks, storedCustomSalas);
 
+  // cópia de segurança ANTES de reescrever qualquer coisa: uma por dia e uma
+  // na primeira abertura de cada versão nova da página.
+  if (hadStoredData){
+    await fbBackupOnce(todayLabel());
+    if (storedAppVersion !== APP_VERSION) await fbBackupOnce('antes_da_versao_' + APP_VERSION + '_' + Date.now());
+  }
+
   const done = {};
   const schedule = {};
+  const seedKeys = new Set();
   allTaskEntries(seed).forEach(({ key, defaultDone, defaultDays }) => {
-    done[key] = storedDone.hasOwnProperty(key) ? !!storedDone[key] : defaultDone;
-    schedule[key] = Array.isArray(storedSchedule[key])
-      ? storedSchedule[key].filter(d => DAYS.some(D => D.code === d))
+    seedKeys.add(key);
+    // se a atividade tinha sido "guardada" (saiu da estrutura numa versão anterior)
+    // e voltou, recupera o progresso guardado
+    const fromStoredDone = storedDone.hasOwnProperty(key) ? storedDone[key]
+      : (storedOrphanDone.hasOwnProperty(key) ? storedOrphanDone[key] : undefined);
+    done[key] = fromStoredDone !== undefined ? !!fromStoredDone : defaultDone;
+    const fromStoredSchedule = Array.isArray(storedSchedule[key]) ? storedSchedule[key]
+      : (Array.isArray(storedOrphanSchedule[key]) ? storedOrphanSchedule[key] : null);
+    schedule[key] = fromStoredSchedule
+      ? fromStoredSchedule.filter(d => DAYS.some(D => D.code === d))
       : (defaultDays || []).filter(d => DAYS.some(D => D.code === d));
+  });
+
+  // progresso de atividades que NÃO estão mais na estrutura atual não é
+  // descartado: fica guardado à parte (e volta se a atividade voltar).
+  const orphanDone = {};
+  const orphanSchedule = {};
+  [storedOrphanDone, storedDone].forEach(src => {
+    Object.keys(src).forEach(k => { if (!seedKeys.has(k)) orphanDone[k] = !!src[k]; });
+  });
+  [storedOrphanSchedule, storedSchedule].forEach(src => {
+    Object.keys(src).forEach(k => { if (!seedKeys.has(k) && Array.isArray(src[k])) orphanSchedule[k] = src[k]; });
   });
 
   const state = {
@@ -1069,6 +1169,7 @@ async function loadState(){
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     materialDependency: storedMaterialDependency,
     priority: storedPriority, subitems: storedSubitems,
+    orphanDone, orphanSchedule,
     done, schedule, lastUpdated
   };
   await saveState(state, false);
@@ -1350,20 +1451,7 @@ function deleteTask(state, sala, func, text){
 async function saveState(state, updateStamp = true){
   const stampBackup = state.lastUpdated;
   if (updateStamp) state.lastUpdated = new Date().toISOString();
-  const payload = {
-    done: state.done,
-    schedule: state.schedule,
-    customSeed: state.customSeed,
-    archived: state.archived,
-    hiddenTasks: state.hiddenTasks,
-    purchaseStatus: state.purchaseStatus,
-    materialDependency: state.materialDependency,
-    priority: state.priority,
-    subitems: state.subitems,
-    customSalas: state.customSalas,
-    projectLinks: state.projectLinks,
-    lastUpdated: state.lastUpdated
-  };
+  const payload = buildPayload(state);
   try{
     await writeStoredPayload(payload);
     renderFooter(state);
@@ -1387,6 +1475,49 @@ function formatStamp(iso){
 function renderFooter(state){
   const el = document.getElementById('footer');
   if (el) el.textContent = 'Última atualização: ' + formatStamp(state.lastUpdated);
+  renderBackupBar();
+}
+
+/** Botões de backup manual: baixar uma cópia (.json) e restaurar a partir de uma. */
+function renderBackupBar(){
+  const bar = document.getElementById('backup-bar');
+  if (!bar || bar.dataset.ready || isQuickAddMode) return;
+  bar.dataset.ready = '1';
+  bar.innerHTML = `
+    <button type="button" class="modal-btn modal-btn-cancel" id="btn-backup-download">⬇ Baixar backup</button>
+    <button type="button" class="modal-btn modal-btn-cancel" id="btn-backup-restore">⬆ Restaurar backup</button>
+    <input type="file" id="backup-file" accept="application/json,.json" style="display:none;" />
+  `;
+  document.getElementById('btn-backup-download').onclick = () => {
+    if (!appState) return;
+    const blob = new Blob([JSON.stringify(buildPayload(appState), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    a.href = url;
+    a.download = `backup_checklist_${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  };
+  const fileInput = document.getElementById('backup-file');
+  document.getElementById('btn-backup-restore').onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    try{
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || typeof parsed.done !== 'object' || typeof parsed.schedule !== 'object') throw new Error('arquivo inválido');
+      if (!confirm('Restaurar este backup vai SUBSTITUIR os dados atuais do checklist (antes disso uma cópia dos dados atuais é guardada). Continuar?')) return;
+      await fbBackupOnce('antes_de_restaurar_' + Date.now());
+      await writeStoredPayload(parsed);
+      window.location.reload();
+    }catch(e){
+      alert('Não foi possível restaurar: ' + ((e && e.message) || e));
+    }
+  };
 }
 
 function parseKey(key){
