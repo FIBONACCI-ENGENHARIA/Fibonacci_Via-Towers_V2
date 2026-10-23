@@ -188,6 +188,7 @@
     border-radius:8px;cursor:pointer;
   }
   .archive-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .archive-btn.future-toggle-all{margin:0;}
 
   .sala-actions-row{
     display:flex;align-items:flex-start;justify-content:space-between;
@@ -461,6 +462,26 @@
     background:var(--card);border:1px solid var(--border);border-radius:10px;
   }
 
+  .future-block{border-top:1px dashed var(--border);margin:0 8px;}
+  .future-toggle{
+    width:100%;display:flex;align-items:center;gap:6px;background:transparent;border:none;
+    padding:9px 4px;font-size:12px;font-weight:700;color:var(--text-secondary);cursor:pointer;text-align:left;
+  }
+  .future-toggle:hover{color:var(--gold);}
+  .future-toggle .future-arrow{font-size:9px;transition:transform .15s ease;}
+  .future-block.open .future-toggle .future-arrow{transform:rotate(90deg);}
+  .future-list{display:none;padding:0 0 6px;}
+  .future-block.open .future-list{display:block;}
+  .task-item.future label{color:var(--text-secondary);cursor:default;}
+  .future-icon{flex-shrink:0;width:16px;height:16px;margin-top:2px;color:var(--text-secondary);display:flex;}
+  .future-icon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;}
+  .release-btn{
+    flex-shrink:0;font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;cursor:pointer;
+    border:1px solid var(--gold);background:transparent;color:var(--gold);
+  }
+  .release-btn:hover{background:var(--gold);color:#fff;}
+  .release-btn:disabled{opacity:0.6;cursor:default;}
+
   .calendar-legend{
     display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;
   }
@@ -572,7 +593,7 @@ const STORAGE_KEY = 'checklist:obras-fibonacci';
 // Muda a cada vez que a estrutura da página é atualizada. Na primeira vez que
 // uma versão nova abre, o app guarda uma cópia de segurança dos dados ANTES
 // de mexer em qualquer coisa.
-const APP_VERSION = '2026-10-20-a';
+const APP_VERSION = '2026-10-23-b';
 
 // dados originais levantados (sala -> funcionario -> [tarefas])
 const BASE_SEED = {
@@ -934,6 +955,7 @@ async function loadStoredPayload(){
         purchaseStatus: decodeKeyedMapFromFirebase(raw.purchaseStatus),
         materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
         priority: decodeKeyedMapFromFirebase(raw.priority),
+        future: decodeKeyedMapFromFirebase(raw.future),
         orphanDone: decodeKeyedMapFromFirebase(raw.orphanDone),
         orphanSchedule: decodeScheduleFromFirebase(raw.orphanSchedule),
         appVersion: raw.appVersion,
@@ -999,6 +1021,7 @@ async function writeStoredPayload(payload){
       purchaseStatus: encodeKeyedMapForFirebase(payload.purchaseStatus),
       materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
       priority: encodeKeyedMapForFirebase(payload.priority),
+      future: encodeKeyedMapForFirebase(payload.future),
       orphanDone: encodeKeyedMapForFirebase(payload.orphanDone),
       orphanSchedule: encodeScheduleForFirebase(payload.orphanSchedule),
       appVersion: payload.appVersion,
@@ -1066,6 +1089,7 @@ function buildPayload(state){
     purchaseStatus: state.purchaseStatus,
     materialDependency: state.materialDependency,
     priority: state.priority,
+    future: state.future,
     subitems: state.subitems,
     orphanDone: state.orphanDone,
     orphanSchedule: state.orphanSchedule,
@@ -1087,6 +1111,7 @@ async function loadState(){
   let storedProjectLinks = {};
   let storedMaterialDependency = {};
   let storedPriority = {};
+  let storedFuture = {};
   let storedOrphanDone = {};
   let storedOrphanSchedule = {};
   let storedAppVersion = null;
@@ -1110,6 +1135,7 @@ async function loadState(){
     if (parsed && parsed.projectLinks) storedProjectLinks = JSON.parse(JSON.stringify(parsed.projectLinks));
     if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
     if (parsed && parsed.priority) storedPriority = JSON.parse(JSON.stringify(parsed.priority));
+    if (parsed && parsed.future) storedFuture = JSON.parse(JSON.stringify(parsed.future));
     if (parsed && parsed.orphanDone) storedOrphanDone = JSON.parse(JSON.stringify(parsed.orphanDone));
     if (parsed && parsed.orphanSchedule) storedOrphanSchedule = JSON.parse(JSON.stringify(parsed.orphanSchedule));
     if (parsed && parsed.appVersion) storedAppVersion = parsed.appVersion;
@@ -1177,7 +1203,7 @@ async function loadState(){
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     materialDependency: storedMaterialDependency,
-    priority: storedPriority, subitems: storedSubitems,
+    priority: storedPriority, future: storedFuture, subitems: storedSubitems,
     orphanDone, orphanSchedule,
     done, schedule, lastUpdated
   };
@@ -1285,6 +1311,30 @@ function setPriority(state, key, value){
   else delete state.priority[key];
 }
 
+/**
+ * Atividade futura: fica no checklist pra não esquecer, mas ainda não pode ser
+ * feita. Não conta no progresso, não entra no calendário e não tem checkbox
+ * nem dias — até ser "liberada" (virar atual).
+ */
+function isFuture(state, key){
+  return !!(state.future && state.future[key]);
+}
+function setFuture(state, key, value){
+  if (!state.future) state.future = {};
+  if (value){
+    state.future[key] = true;
+    // futura não fica agendada nem marcada como feita
+    delete state.schedule[key];
+    state.done[key] = false;
+  } else {
+    delete state.future[key];
+  }
+}
+/** Chaves que contam no progresso: todas menos as futuras. */
+function countableKeys(state){
+  return Object.keys(state.done).filter(k => !isFuture(state, k));
+}
+
 /** Subitens: lista [{text, done}] ligada à chave da atividade-mãe. */
 function getSubitems(state, key){
   return (state.subitems && state.subitems[key]) || [];
@@ -1334,12 +1384,12 @@ function setTaskDoneWithSubitems(state, key, value){
  * Aplica a regra automática: texto com "Comprar"/"Compra" vai pro
  * funcionário virtual "Compras", independente do responsável escolhido.
  */
-function addCustomTask(state, sala, func, text, days, needsMaterial, priority, subitemTexts){
+function addCustomTask(state, sala, func, text, days, needsMaterial, priority, subitemTexts, future){
   const cleanText = String(text || '').trim();
   if (!cleanText) return null;
 
   const effectiveFunc = isPurchaseTask(cleanText) ? 'Compras' : (String(func || '').trim() || 'Sem responsável');
-  const cleanDays = Array.isArray(days) ? days.filter(d => DAYS.some(D => D.code === d)) : [];
+  const cleanDays = future ? [] : (Array.isArray(days) ? days.filter(d => DAYS.some(D => D.code === d)) : []);
 
   if (!state.customSeed[sala]) state.customSeed[sala] = {};
   if (!state.customSeed[sala][effectiveFunc]) state.customSeed[sala][effectiveFunc] = [];
@@ -1353,6 +1403,7 @@ function addCustomTask(state, sala, func, text, days, needsMaterial, priority, s
   setDependsOnMaterial(state, key, !!needsMaterial);
   setPriority(state, key, !!priority);
   if (effectiveFunc !== 'Compras') setSubitems(state, key, subitemTexts);
+  setFuture(state, key, !!future);
 
   return { func: effectiveFunc, key, redirected: effectiveFunc === 'Compras' && effectiveFunc !== func };
 }
@@ -1376,12 +1427,12 @@ function removeFromCustomSeed(state, sala, func, text){
  * nova entrada equivalente entra no customSeed, migrando o progresso (done)
  * e o agendamento (schedule) da chave antiga pra chave nova.
  */
-function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial, priority, subitemTexts){
+function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial, priority, subitemTexts, future){
   const oldKey = taskKey(oldFunc, sala, oldText);
   const cleanText = String(newText || '').trim();
   if (!cleanText) return null;
   const effectiveFunc = isPurchaseTask(cleanText) ? 'Compras' : (String(newFunc || '').trim() || oldFunc);
-  const cleanDays = Array.isArray(days) ? days.filter(d => DAYS.some(D => D.code === d)) : [];
+  const cleanDays = future ? [] : (Array.isArray(days) ? days.filter(d => DAYS.some(D => D.code === d)) : []);
   const newKey = taskKey(effectiveFunc, sala, cleanText);
 
   if (!state.hiddenTasks) state.hiddenTasks = {};
@@ -1413,6 +1464,7 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
 
     setDependsOnMaterial(state, oldKey, false);
     setPriority(state, oldKey, false);
+    if (state.future) delete state.future[oldKey];
     if (state.subitems){
       if (state.subitems[oldKey]) state.subitems[newKey] = state.subitems[oldKey];
       delete state.subitems[oldKey];
@@ -1431,6 +1483,8 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
   } else if (subitemTexts !== undefined){
     setSubitems(state, newKey, subitemTexts);
   }
+  // undefined = mantém como estava (atual/futura)
+  if (future !== undefined) setFuture(state, newKey, !!future);
 
   return { func: effectiveFunc, key: newKey };
 }
@@ -1453,6 +1507,7 @@ function deleteTask(state, sala, func, text){
   if (state.purchaseStatus) delete state.purchaseStatus[key];
   setDependsOnMaterial(state, key, false);
   setPriority(state, key, false);
+  if (state.future) delete state.future[key];
   if (state.subitems) delete state.subitems[key];
   return { key };
 }
@@ -1535,14 +1590,14 @@ function parseKey(key){
 }
 
 function overallCounts(state){
-  const keys = Object.keys(state.done);
+  const keys = countableKeys(state);
   const total = keys.length;
   const done = keys.filter(k => state.done[k]).length;
   return { done, total };
 }
 
 function employeeCounts(state, employee){
-  const keys = Object.keys(state.done).filter(k => {
+  const keys = countableKeys(state).filter(k => {
     const p = parseKey(k);
     return p.func === employee && !state.archived[p.sala];
   });
@@ -1552,7 +1607,7 @@ function employeeCounts(state, employee){
 }
 
 function salaCounts(state, sala){
-  const keys = Object.keys(state.done).filter(k => parseKey(k).sala === sala);
+  const keys = countableKeys(state).filter(k => parseKey(k).sala === sala);
   const total = keys.length;
   const done = keys.filter(k => state.done[k]).length;
   return { done, total };
@@ -1762,24 +1817,110 @@ function renderTaskItem(state, func, sala, text, opts){
   return li;
 }
 
+const CLOCK_ICON_SVG = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>';
+
+/**
+ * <li> de uma atividade futura: sem checkbox, sem dias e sem estágios de
+ * compra — só o texto, os destaques (material/prioridade), o botão "Liberar"
+ * (vira atual) e o lápis de editar.
+ */
+function renderFutureItem(state, func, sala, text, opts){
+  opts = opts || {};
+  const key = taskKey(func, sala, text);
+  const needsMaterial = dependsOnMaterial(state, key);
+  const subs = func === 'Compras' ? [] : getSubitems(state, key);
+  const li = document.createElement('li');
+  li.className = 'task-item future' + (needsMaterial ? ' needs-material' : '') + (isPriority(state, key) ? ' priority' : '');
+  const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
+  li.innerHTML = `
+    <span class="future-icon" title="Atividade futura">${CLOCK_ICON_SVG}</span>
+    <div class="task-item-body">
+      <div class="task-item-row">
+        <label>${contextHtml}${text}</label>
+        <button type="button" class="release-btn" title="Passar para atividade atual">Liberar</button>
+        <button type="button" class="edit-task-btn" title="Editar atividade">${EDIT_ICON_SVG}</button>
+      </div>
+      ${needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : ''}
+      ${subs.length ? `<span class="subitem-count">${subs.length} subitens</span>` : ''}
+    </div>
+  `;
+
+  const releaseBtn = li.querySelector('.release-btn');
+  releaseBtn.addEventListener('click', async () => {
+    releaseBtn.textContent = 'Liberando...';
+    releaseBtn.disabled = true;
+    setFuture(state, key, false);
+    const ok = await saveState(state);
+    if (!ok){
+      setFuture(state, key, true);
+      releaseBtn.textContent = 'Liberar';
+      releaseBtn.disabled = false;
+      alert('Não foi possível salvar agora. Tente novamente em instantes.');
+      return;
+    }
+    render();
+  });
+
+  li.querySelector('.edit-task-btn').addEventListener('click', () => {
+    showEditTaskModal(sala, func, text);
+  });
+
+  return li;
+}
+
+// quais blocos "Futuras" estão abertos (sobrevive aos re-renders; começa fechado)
+const openFutureBlocks = new Set();
+
+/**
+ * Bloco recolhível "▸ Futuras (n)" no fim de um card. Fica fora da imagem
+ * baixada (no-capture), que mostra só as atividades atuais.
+ */
+function renderFutureBlock(blockId, items){
+  const block = document.createElement('div');
+  block.className = 'future-block no-capture' + (openFutureBlocks.has(blockId) ? ' open' : '');
+  block.dataset.blockId = blockId;
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'future-toggle';
+  toggle.innerHTML = `<span class="future-arrow">▶</span>Futuras (${items.length})`;
+  toggle.addEventListener('click', () => {
+    const nowOpen = !block.classList.contains('open');
+    block.classList.toggle('open', nowOpen);
+    if (nowOpen) openFutureBlocks.add(blockId); else openFutureBlocks.delete(blockId);
+    refreshFutureToggleAll();
+  });
+  block.appendChild(toggle);
+
+  const list = document.createElement('ul');
+  list.className = 'task-list future-list';
+  items.forEach(li => list.appendChild(li));
+  block.appendChild(list);
+  return block;
+}
+
 function renderGroupCard(state, groupTitle, rawTasks, func, sala){
   const card = document.createElement('div');
   card.className = 'sala-card';
 
   const tasks = rawTasks.map(taskInfo);
-  const groupDone = tasks.filter(t => state.done[taskKey(func, sala, t.text)]).length;
-  const activeTasks = tasks.filter(t => !state.done[taskKey(func, sala, t.text)]);
+  const currentTasks = tasks.filter(t => !isFuture(state, taskKey(func, sala, t.text)));
+  const futureTasks = tasks.filter(t => isFuture(state, taskKey(func, sala, t.text)));
+  const groupDone = currentTasks.filter(t => state.done[taskKey(func, sala, t.text)]).length;
+  const activeTasks = currentTasks.filter(t => !state.done[taskKey(func, sala, t.text)]);
 
   const head = document.createElement('div');
   head.className = 'sala-head';
-  head.innerHTML = `<h3>${groupTitle}</h3><span class="sala-count">${groupDone}/${tasks.length}</span>`;
+  head.innerHTML = `<h3>${groupTitle}</h3><span class="sala-count">${groupDone}/${currentTasks.length}</span>`;
   card.appendChild(head);
 
   const list = document.createElement('ul');
   list.className = 'task-list';
 
   if (activeTasks.length === 0){
-    list.innerHTML = '<li class="task-list-empty">Tudo concluído por aqui 🎉</li>';
+    list.innerHTML = futureTasks.length
+      ? '<li class="task-list-empty">Nenhuma atividade atual pendente.</li>'
+      : '<li class="task-list-empty">Tudo concluído por aqui 🎉</li>';
   }
 
   activeTasks.forEach(({ text }) => {
@@ -1787,6 +1928,13 @@ function renderGroupCard(state, groupTitle, rawTasks, func, sala){
   });
 
   card.appendChild(list);
+
+  if (futureTasks.length){
+    card.appendChild(renderFutureBlock(
+      'grp|' + func + '|' + sala,
+      futureTasks.map(({ text }) => renderFutureItem(state, func, sala, text))
+    ));
+  }
   return card;
 }
 
@@ -1800,8 +1948,9 @@ function collectScheduledTasks(state, filterFn){
         const key = taskKey(func, sala, text);
         const days = state.schedule[key] || [];
         const isDone = !!state.done[key];
-        // tarefas concluídas saem do calendário (ficam só na lista de concluídas)
-        if (days.length > 0 && !isDone){
+        // tarefas concluídas saem do calendário (ficam só na lista de concluídas);
+        // futuras também ficam fora até serem liberadas
+        if (days.length > 0 && !isDone && !isFuture(state, key)){
           results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key), priority: isPriority(state, key) });
         }
       });
@@ -1901,6 +2050,7 @@ function renderPurchaseBoard(state){
     tasks.map(taskInfo).forEach(({ text }) => {
       const key = taskKey('Compras', sala, text);
       if (state.done[key]) return; // já entregue — fica só na lista de concluídas
+      if (isFuture(state, key)) return; // compra futura — ainda não entrou no fluxo
       const status = getPurchaseStatus(state, key);
       const col = status.pago ? 'pago' : (status.orcado ? 'orcado' : 'solicitado');
       grouped[col].push({ sala, text, priority: isPriority(state, key) });
@@ -1966,7 +2116,7 @@ function collectDoneTasks(state, filterFn){
       if (!filterFn(func, sala)) continue;
       state.seed[sala][func].map(taskInfo).forEach(({ text }) => {
         const key = taskKey(func, sala, text);
-        if (state.done[key]) results.push({ func, sala, text, key });
+        if (state.done[key] && !isFuture(state, key)) results.push({ func, sala, text, key });
       });
     }
   }
@@ -2346,19 +2496,23 @@ function renderGeralCard(state, sala){
     });
   });
 
-  const groupDone = allTasks.filter(t => state.done[t.key]).length;
-  const activeTasks = allTasks.filter(t => !state.done[t.key]);
+  const currentTasks = allTasks.filter(t => !isFuture(state, t.key));
+  const futureTasks = allTasks.filter(t => isFuture(state, t.key));
+  const groupDone = currentTasks.filter(t => state.done[t.key]).length;
+  const activeTasks = currentTasks.filter(t => !state.done[t.key]);
 
   const head = document.createElement('div');
   head.className = 'sala-head';
-  head.innerHTML = `<h3>${sala}</h3><span class="sala-count">${groupDone}/${allTasks.length}</span>`;
+  head.innerHTML = `<h3>${sala}</h3><span class="sala-count">${groupDone}/${currentTasks.length}</span>`;
   card.appendChild(head);
 
   const list = document.createElement('ul');
   list.className = 'task-list';
 
   if (activeTasks.length === 0){
-    list.innerHTML = '<li class="task-list-empty">Tudo concluído por aqui 🎉</li>';
+    list.innerHTML = futureTasks.length
+      ? '<li class="task-list-empty">Nenhuma atividade atual pendente.</li>'
+      : '<li class="task-list-empty">Tudo concluído por aqui 🎉</li>';
   }
 
   activeTasks.forEach(({ func, text }) => {
@@ -2366,6 +2520,13 @@ function renderGeralCard(state, sala){
   });
 
   card.appendChild(list);
+
+  if (futureTasks.length){
+    card.appendChild(renderFutureBlock(
+      'geral|' + sala,
+      futureTasks.map(({ func, text }) => renderFutureItem(state, func, sala, text, { showContext: true }))
+    ));
+  }
   return card;
 }
 
@@ -2377,7 +2538,7 @@ function renderGeralCard(state, sala){
 function renderSalaAggregate(state, salas, title, emptyMessage){
   const contentEl = document.getElementById('content');
 
-  const keys = Object.keys(state.done).filter(k => salas.includes(parseKey(k).sala));
+  const keys = countableKeys(state).filter(k => salas.includes(parseKey(k).sala));
   const total = keys.length;
   const done = keys.filter(k => state.done[k]).length;
   const pct = total ? Math.round((done/total)*100) : 0;
@@ -2418,11 +2579,63 @@ function renderSalaAggregate(state, salas, title, emptyMessage){
   ));
 }
 
+/**
+ * Botão geral "Exibir/Ocultar atividades futuras": abre ou fecha, de uma vez,
+ * todos os blocos "Futuras" da tela atual. Só aparece se houver alguma futura.
+ * Fica fora da imagem baixada (no-capture).
+ */
+function refreshFutureToggleAll(){
+  const btn = document.querySelector('#content .future-toggle-all');
+  if (!btn) return;
+  const blocks = Array.from(document.querySelectorAll('#content .future-block'));
+  const allOpen = blocks.length > 0 && blocks.every(b => b.classList.contains('open'));
+  btn.textContent = allOpen ? 'Ocultar atividades futuras' : 'Exibir atividades futuras';
+  btn.title = allOpen ? 'Recolher todas as atividades futuras' : 'Expandir todas as atividades futuras';
+}
+
+function renderFutureToggleAll(){
+  const contentEl = document.getElementById('content');
+  if (!contentEl) return;
+  contentEl.querySelectorAll('.future-toggle-all, .future-toggle-row').forEach(el => el.remove());
+  const blocks = Array.from(contentEl.querySelectorAll('.future-block'));
+  if (blocks.length === 0) return;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'archive-btn future-toggle-all no-capture';
+  btn.addEventListener('click', () => {
+    const current = Array.from(contentEl.querySelectorAll('.future-block'));
+    const allOpen = current.every(b => b.classList.contains('open'));
+    current.forEach(b => {
+      b.classList.toggle('open', !allOpen);
+      const id = b.dataset.blockId;
+      if (!id) return;
+      if (allOpen) openFutureBlocks.delete(id); else openFutureBlocks.add(id);
+    });
+    refreshFutureToggleAll();
+  });
+
+  const left = contentEl.querySelector('.sala-actions-left');
+  if (left){
+    left.appendChild(btn);
+  } else {
+    const row = document.createElement('div');
+    row.className = 'sala-actions-row future-toggle-row no-capture';
+    row.style.margin = '0 0 14px';
+    row.appendChild(btn);
+    const progress = contentEl.querySelector('.employee-progress');
+    if (progress && progress.parentNode === contentEl) progress.after(row);
+    else contentEl.prepend(row);
+  }
+  refreshFutureToggleAll();
+}
+
 function render(){
   if (!appState) return;
   renderHeaderProgress(appState);
   renderNav(appState);
   renderContent(appState);
+  renderFutureToggleAll();
 }
 
 document.getElementById('download-img-btn').addEventListener('click', async () => {
@@ -2581,7 +2794,7 @@ function showAddTaskModal(sala){
           <textarea id="task-text-multi" rows="6" placeholder="Instalar porta do banheiro
 Instalar espelho
 Pintar rodapé"></textarea>
-          <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável e dias.</div>
+          <div class="modal-hint">Cada linha vira uma atividade separada, todas com o mesmo responsável, dias e Atual/Futura.</div>
         </div>
         <div class="modal-field" id="task-subitems-field">
           <label for="task-subitems">Subitens (opcional, um por linha)</label>
@@ -2592,6 +2805,14 @@ Finalizar embutidos"></textarea>
         </div>
       </div>
       <div class="modal-col">
+        <div class="modal-field">
+          <label>Quando?</label>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" id="timing-btn-atual">Atual</button>
+            <button type="button" class="mode-btn" id="timing-btn-futura">Futura</button>
+          </div>
+          <div class="modal-hint">"Futura" fica guardada no card, sem dias e fora do progresso, até ser liberada.</div>
+        </div>
         <div class="modal-field">
           <label for="task-func-select">Responsável</label>
           <select id="task-func-select">
@@ -2694,11 +2915,23 @@ Finalizar embutidos"></textarea>
   const subitemsField = document.getElementById('task-subitems-field');
   const subitemsInput = document.getElementById('task-subitems');
 
+  let isFutureTask = false;
+  const timingBtnAtual = document.getElementById('timing-btn-atual');
+  const timingBtnFutura = document.getElementById('timing-btn-futura');
+  function setTiming(future){
+    isFutureTask = future;
+    timingBtnAtual.classList.toggle('active', !future);
+    timingBtnFutura.classList.toggle('active', future);
+    updateDaysVisibility();
+  }
+  timingBtnAtual.onclick = () => setTiming(false);
+  timingBtnFutura.onclick = () => setTiming(true);
+
   function updateDaysVisibility(){
     const isCompraNow = mode === 'unica'
       ? (isPurchaseTask(textInput.value) || funcSelect.value === 'Compras')
       : funcSelect.value === 'Compras';
-    daysField.style.display = isCompraNow ? 'none' : 'block';
+    daysField.style.display = (isCompraNow || isFutureTask) ? 'none' : 'block';
     // subitens só no modo "Única" e fora de Compras
     subitemsField.style.display = (mode === 'unica' && !isCompraNow) ? 'block' : 'none';
   }
@@ -2760,7 +2993,7 @@ Finalizar embutidos"></textarea>
 
     const subTexts = mode === 'unica' ? parseSubitemTexts(subitemsInput.value) : [];
     texts.forEach(t => {
-      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial, priorityOn, subTexts);
+      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial, priorityOn, subTexts, isFutureTask);
     });
     const ok = await saveState(appState);
 
@@ -2784,6 +3017,7 @@ function showEditTaskModal(sala, func, text){
   const currentNeedsMaterial = dependsOnMaterial(appState, key);
   const currentPriority = isPriority(appState, key);
   const currentSubitemsText = getSubitems(appState, key).map(x => x.text).join('\n');
+  const currentFuture = isFuture(appState, key);
   const optionsHtml = employees.map(emp =>
     `<option value="${emp}"${emp === func ? ' selected' : ''}>${emp}</option>`
   ).join('');
@@ -2811,6 +3045,14 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
       </div>
       <div class="modal-col">
         <div class="modal-field">
+          <label>Quando?</label>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn${currentFuture ? '' : ' active'}" id="edit-timing-btn-atual">Atual</button>
+            <button type="button" class="mode-btn${currentFuture ? ' active' : ''}" id="edit-timing-btn-futura">Futura</button>
+          </div>
+          <div class="modal-hint">"Futura" fica guardada no card, sem dias e fora do progresso, até ser liberada.</div>
+        </div>
+        <div class="modal-field">
           <label for="edit-task-func-select">Responsável</label>
           <select id="edit-task-func-select">
             ${optionsHtml}
@@ -2822,7 +3064,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
           <input type="text" id="edit-task-func-new" placeholder="Ex: Neto" />
         </div>
         ${func === 'Compras' ? '' : `
-        <div class="modal-field">
+        <div class="modal-field" id="edit-task-days-field"${currentFuture ? ' style="display:none;"' : ''}>
           <label>Dias</label>
           <div class="modal-days">${dayButtonsHtml}</div>
         </div>
@@ -2906,6 +3148,19 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
     editMaterialBtnNao.classList.remove('active');
   };
 
+  let editFuture = currentFuture;
+  const editTimingBtnAtual = document.getElementById('edit-timing-btn-atual');
+  const editTimingBtnFutura = document.getElementById('edit-timing-btn-futura');
+  const editDaysField = document.getElementById('edit-task-days-field');
+  function setEditTiming(future){
+    editFuture = future;
+    editTimingBtnAtual.classList.toggle('active', !future);
+    editTimingBtnFutura.classList.toggle('active', future);
+    if (editDaysField) editDaysField.style.display = future ? 'none' : 'block';
+  }
+  editTimingBtnAtual.onclick = () => setEditTiming(false);
+  editTimingBtnFutura.onclick = () => setEditTiming(true);
+
   let editPriority = currentPriority;
   const editPriorityBtnNao = document.getElementById('edit-priority-btn-nao');
   const editPriorityBtnSim = document.getElementById('edit-priority-btn-sim');
@@ -2958,7 +3213,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
 
     const editSubInput = document.getElementById('edit-task-subitems');
     const editSubTexts = editSubInput ? parseSubitemTexts(editSubInput.value) : undefined;
-    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial, editPriority, editSubTexts);
+    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial, editPriority, editSubTexts, editFuture);
     const ok = await saveState(appState);
 
     if (!ok){
@@ -3081,6 +3336,13 @@ async function renderQuickForm(){
       <input type="text" id="quick-func-new" placeholder="Ex: Neto" />
     </div>
     <div class="modal-field">
+      <label>Quando?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="quick-timing-atual">Atual</button>
+        <button type="button" class="mode-btn" id="quick-timing-futura">Futura</button>
+      </div>
+    </div>
+    <div class="modal-field" id="quick-days-field">
       <label>Dias (opcional)</label>
       <div class="modal-days">${dayButtonsHtml}</div>
     </div>
@@ -3104,6 +3366,19 @@ async function renderQuickForm(){
   funcSelect.addEventListener('change', () => {
     funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
   });
+
+  let quickFuture = false;
+  const quickTimingAtual = document.getElementById('quick-timing-atual');
+  const quickTimingFutura = document.getElementById('quick-timing-futura');
+  const quickDaysField = document.getElementById('quick-days-field');
+  function setQuickTiming(future){
+    quickFuture = future;
+    quickTimingAtual.classList.toggle('active', !future);
+    quickTimingFutura.classList.toggle('active', future);
+    quickDaysField.style.display = future ? 'none' : 'block';
+  }
+  quickTimingAtual.onclick = () => setQuickTiming(false);
+  quickTimingFutura.onclick = () => setQuickTiming(true);
 
   const selectedDays = new Set();
   document.querySelectorAll('#quick-content .modal-day-chip').forEach(chip => {
@@ -3133,7 +3408,7 @@ async function renderQuickForm(){
     confirmBtn.disabled = true;
 
     const criouNovoAlgo = salaSelect.value === '__new__' || funcSelect.value === '__new__';
-    addCustomTask(appState, sala, func, text, Array.from(selectedDays));
+    addCustomTask(appState, sala, func, text, Array.from(selectedDays), false, false, [], quickFuture);
     const ok = await saveState(appState);
 
     if (!ok){
@@ -3151,6 +3426,7 @@ async function renderQuickForm(){
       textInput.value = '';
       selectedDays.clear();
       document.querySelectorAll('#quick-content .modal-day-chip.active').forEach(chip => chip.classList.remove('active'));
+      setQuickTiming(false);
       confirmBtn.textContent = 'Cadastrar atividade';
       confirmBtn.disabled = false;
       textInput.focus();
