@@ -190,6 +190,55 @@
   .archive-btn:hover{border-color:var(--gold);color:var(--gold);}
   .archive-btn.future-toggle-all{margin:0;}
 
+  .sala-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:20px;align-items:start;}
+  .sala-layout.panel-collapsed{grid-template-columns:minmax(0,1fr) 44px;}
+  .projects-panel{
+    position:sticky;top:16px;background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:14px;
+  }
+  .projects-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
+  .projects-head h3{margin:0;font-size:14px;font-weight:700;color:var(--text);}
+  .projects-collapse{
+    background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:15px;
+    padding:2px 6px;border-radius:6px;
+  }
+  .projects-collapse:hover{color:var(--gold);background:var(--card-alt);}
+  .projects-list{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
+  .project-item{display:flex;align-items:stretch;gap:4px;}
+  .project-open{
+    flex:1;min-width:0;text-align:left;display:flex;align-items:center;gap:8px;
+    background:var(--card-alt);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:9px 10px;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .project-open:hover{border-color:var(--gold);color:var(--gold);}
+  .project-open span.project-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .project-edit{
+    flex-shrink:0;background:none;border:none;color:var(--text-secondary);cursor:pointer;
+    padding:2px 4px;border-radius:6px;display:flex;align-items:center;
+  }
+  .project-edit:hover{color:var(--gold);background:var(--card-alt);}
+  .project-edit svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;}
+  .projects-empty{font-size:12px;color:var(--text-secondary);margin:0 0 10px;line-height:1.4;}
+  .projects-add{
+    width:100%;background:transparent;border:1px dashed var(--gold);color:var(--gold);
+    border-radius:8px;padding:8px;font-size:12.5px;font-weight:700;cursor:pointer;
+  }
+  .projects-add:hover{background:var(--card-alt);}
+  .projects-panel.collapsed{padding:8px 4px;text-align:center;}
+  .projects-panel.collapsed .projects-head{flex-direction:column;margin:0;}
+  .projects-expand{background:none;border:none;cursor:pointer;font-size:18px;padding:4px;color:var(--text-secondary);}
+  .projects-expand:hover{color:var(--gold);}
+  .projects-count{font-size:10.5px;font-weight:700;color:var(--text-secondary);}
+  @media (max-width: 1100px){
+    .sala-layout, .sala-layout.panel-collapsed{grid-template-columns:minmax(0,1fr);}
+    .projects-panel{position:static;order:-1;}
+    .projects-list{flex-direction:row;flex-wrap:wrap;}
+    .project-item{flex:0 1 auto;max-width:100%;}
+    .projects-add{width:auto;padding:8px 14px;}
+    .projects-panel.collapsed{text-align:left;}
+    .projects-panel.collapsed .projects-head{flex-direction:row;}
+  }
+
   .sala-actions-row{
     display:flex;align-items:flex-start;justify-content:space-between;
     flex-wrap:wrap;gap:10px;
@@ -452,6 +501,20 @@
   .completed-section h2{
     font-size:16px;font-weight:700;margin:0 0 12px;
   }
+  .completed-section.collapsible h2{margin:0;}
+  .completed-toggle{
+    display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:none;
+    padding:6px 2px;font:inherit;font-weight:700;color:var(--text);cursor:pointer;text-align:left;
+  }
+  .completed-toggle:hover{color:var(--gold);}
+  .completed-toggle .completed-arrow{font-size:10px;color:var(--text-secondary);transition:transform .15s ease;}
+  .completed-section.open .completed-toggle .completed-arrow{transform:rotate(90deg);}
+  .completed-toggle .completed-count{
+    font-size:11px;font-weight:700;color:var(--text-secondary);background:var(--card-alt);
+    border:1px solid var(--border);padding:1px 8px;border-radius:10px;
+  }
+  .completed-section.collapsible .completed-card{display:none;margin-top:10px;}
+  .completed-section.collapsible.open .completed-card{display:block;}
   .completed-card{
     background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;
   }
@@ -593,7 +656,7 @@ const STORAGE_KEY = 'checklist:obras-fibonacci';
 // Muda a cada vez que a estrutura da página é atualizada. Na primeira vez que
 // uma versão nova abre, o app guarda uma cópia de segurança dos dados ANTES
 // de mexer em qualquer coisa.
-const APP_VERSION = '2026-10-23-b';
+const APP_VERSION = '2026-10-23-g';
 
 // dados originais levantados (sala -> funcionario -> [tarefas])
 const BASE_SEED = {
@@ -956,6 +1019,8 @@ async function loadStoredPayload(){
         materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
         priority: decodeKeyedMapFromFirebase(raw.priority),
         future: decodeKeyedMapFromFirebase(raw.future),
+        baseTemplate: raw.baseTemplate,
+        projectDocs: decodeKeyedMapFromFirebase(raw.projectDocs),
         orphanDone: decodeKeyedMapFromFirebase(raw.orphanDone),
         orphanSchedule: decodeScheduleFromFirebase(raw.orphanSchedule),
         appVersion: raw.appVersion,
@@ -1022,6 +1087,8 @@ async function writeStoredPayload(payload){
       materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
       priority: encodeKeyedMapForFirebase(payload.priority),
       future: encodeKeyedMapForFirebase(payload.future),
+      baseTemplate: payload.baseTemplate,
+      projectDocs: encodeKeyedMapForFirebase(payload.projectDocs),
       orphanDone: encodeKeyedMapForFirebase(payload.orphanDone),
       orphanSchedule: encodeScheduleForFirebase(payload.orphanSchedule),
       appVersion: payload.appVersion,
@@ -1030,7 +1097,9 @@ async function writeStoredPayload(payload){
       projectLinks: encodeKeyedMapForFirebase(payload.projectLinks),
       lastUpdated: payload.lastUpdated
     };
-    await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(fbPayload), 12000, 'Firebase: salvar');
+    // o Firebase recusa valores "undefined" — descarta campos ausentes (ex.: backup antigo sem alguns campos)
+    const cleanFbPayload = JSON.parse(JSON.stringify(fbPayload));
+    await withTimeout(fbDb.ref('state/' + STORAGE_KEY).set(cleanFbPayload), 12000, 'Firebase: salvar');
     return;
   }
 
@@ -1090,6 +1159,8 @@ function buildPayload(state){
     materialDependency: state.materialDependency,
     priority: state.priority,
     future: state.future,
+    baseTemplate: state.baseTemplate,
+    projectDocs: state.projectDocs,
     subitems: state.subitems,
     orphanDone: state.orphanDone,
     orphanSchedule: state.orphanSchedule,
@@ -1112,6 +1183,8 @@ async function loadState(){
   let storedMaterialDependency = {};
   let storedPriority = {};
   let storedFuture = {};
+  let storedBaseTemplate = [];
+  let storedProjectDocs = {};
   let storedOrphanDone = {};
   let storedOrphanSchedule = {};
   let storedAppVersion = null;
@@ -1136,6 +1209,8 @@ async function loadState(){
     if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
     if (parsed && parsed.priority) storedPriority = JSON.parse(JSON.stringify(parsed.priority));
     if (parsed && parsed.future) storedFuture = JSON.parse(JSON.stringify(parsed.future));
+    if (parsed && parsed.baseTemplate) storedBaseTemplate = normalizeBaseTemplate(parsed.baseTemplate);
+    if (parsed && parsed.projectDocs) storedProjectDocs = normalizeProjectDocs(parsed.projectDocs);
     if (parsed && parsed.orphanDone) storedOrphanDone = JSON.parse(JSON.stringify(parsed.orphanDone));
     if (parsed && parsed.orphanSchedule) storedOrphanSchedule = JSON.parse(JSON.stringify(parsed.orphanSchedule));
     if (parsed && parsed.appVersion) storedAppVersion = parsed.appVersion;
@@ -1161,6 +1236,17 @@ async function loadState(){
   // fizer no código. Só o progresso (done) e o agendamento (schedule) são
   // recuperados do que já estava salvo, tarefa a tarefa (pela chave
   // func|sala|texto), pra sobreviver a reorganizações sem perder marcações.
+  // migração: o antigo "link do projeto (PDF)" único da sala vira o primeiro item
+  // da lista de projetos dela (o backup automático guarda o formato antigo).
+  Object.keys(storedProjectLinks).forEach(sala => {
+    const url = storedProjectLinks[sala];
+    if (typeof url !== 'string' || !url) return;
+    const list = storedProjectDocs[sala] || [];
+    if (!list.some(d => d.url === url)) list.unshift({ name: 'Projeto (PDF)', url });
+    storedProjectDocs[sala] = list;
+    delete storedProjectLinks[sala];
+  });
+
   const seed = mergeSeed(BASE_SEED, storedCustomSeed, storedHiddenTasks, storedCustomSalas);
 
   // cópia de segurança ANTES de reescrever qualquer coisa: uma por dia e uma
@@ -1203,7 +1289,7 @@ async function loadState(){
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     materialDependency: storedMaterialDependency,
-    priority: storedPriority, future: storedFuture, subitems: storedSubitems,
+    priority: storedPriority, future: storedFuture, baseTemplate: storedBaseTemplate, projectDocs: storedProjectDocs, subitems: storedSubitems,
     orphanDone, orphanSchedule,
     done, schedule, lastUpdated
   };
@@ -1270,6 +1356,94 @@ function setTaskDone(state, key, doneValue){
     state.purchaseStatus[key] = current;
   }
   state.done[key] = doneValue;
+}
+
+/**
+ * Projetos por sala: lista de { name, url } (links de visualização, ex.: Google Drive).
+ * Aparecem no painel "Projetos" à direita da sala.
+ */
+function normalizeProjectDocs(raw){
+  const out = {};
+  Object.keys(raw || {}).forEach(sala => {
+    const v = raw[sala];
+    const arr = Array.isArray(v) ? v : Object.values(v || {});
+    const clean = arr.filter(d => d && typeof d.url === 'string' && d.url.trim())
+      .map(d => ({ name: String(d.name || '').trim() || 'Projeto', url: d.url.trim() }));
+    if (clean.length) out[sala] = clean;
+  });
+  return out;
+}
+function getProjectDocs(state, sala){
+  return (state.projectDocs && state.projectDocs[sala]) || [];
+}
+/** Valida e salva (index = null → novo). Retorna mensagem de erro, ou null se deu certo. */
+function saveProjectDoc(state, sala, index, name, url){
+  const cleanName = String(name || '').trim();
+  const cleanUrl = String(url || '').trim();
+  if (!cleanName) return 'Digite o nome do projeto.';
+  if (!cleanUrl) return 'Cole o link do projeto.';
+  if (!/^https?:\/\//i.test(cleanUrl)) return 'Isso não parece um link válido — precisa começar com http:// ou https://.';
+  if (!state.projectDocs) state.projectDocs = {};
+  const list = getProjectDocs(state, sala).slice();
+  const item = { name: cleanName, url: cleanUrl };
+  if (index === null || index === undefined || !list[index]) list.push(item); else list[index] = item;
+  state.projectDocs[sala] = list;
+  return null;
+}
+function deleteProjectDoc(state, sala, index){
+  const list = getProjectDocs(state, sala).slice();
+  if (!list[index]) return false;
+  list.splice(index, 1);
+  if (list.length) state.projectDocs[sala] = list; else delete state.projectDocs[sala];
+  return true;
+}
+
+/**
+ * Checklist base: lista padrão de atividades que pode ser aplicada ao criar
+ * uma sala nova. Cada item: { func, text, subitems: [texto], future: bool }.
+ */
+function normalizeBaseTemplate(raw){
+  const arr = Array.isArray(raw) ? raw : Object.values(raw || {});
+  return arr
+    .filter(it => it && typeof it.text === 'string' && it.text.trim() && typeof it.func === 'string' && it.func.trim())
+    .map(it => ({
+      func: it.func.trim(),
+      text: it.text.trim(),
+      subitems: parseSubitemTexts(Array.isArray(it.subitems) ? it.subitems : Object.values(it.subitems || {})),
+      future: !!it.future
+    }));
+}
+function getBaseTemplate(state){
+  return Array.isArray(state.baseTemplate) ? state.baseTemplate : [];
+}
+/** Adiciona (index = null) ou altera (index = posição) um item do checklist base. false se duplicado/inválido. */
+function saveBaseItem(state, index, func, text, subitemTexts, future){
+  const cleanFunc = String(func || '').trim();
+  const cleanText = String(text || '').trim();
+  if (!cleanFunc || !cleanText) return false;
+  const list = getBaseTemplate(state).slice();
+  const dup = list.findIndex((it, i) => i !== index && it.func === cleanFunc && it.text === cleanText);
+  if (dup !== -1) return false;
+  const item = { func: cleanFunc, text: cleanText, subitems: parseSubitemTexts(subitemTexts), future: !!future };
+  if (index === null || index === undefined || !list[index]) list.push(item); else list[index] = item;
+  state.baseTemplate = list;
+  return true;
+}
+function deleteBaseItem(state, index){
+  const list = getBaseTemplate(state).slice();
+  if (!list[index]) return false;
+  list.splice(index, 1);
+  state.baseTemplate = list;
+  return true;
+}
+/** Aplica o checklist base a uma sala (normalmente recém-criada). Retorna quantas atividades entraram. */
+function applyBaseTemplate(state, sala){
+  let count = 0;
+  getBaseTemplate(state).forEach(it => {
+    const r = addCustomTask(state, sala, it.func, it.text, [], false, false, it.subitems, it.future);
+    if (r) count++;
+  });
+  return count;
 }
 
 /** Cria uma sala nova (vazia) se ainda não existir. Retorna false se já existia. */
@@ -1703,6 +1877,12 @@ function renderNav(state){
           item.onclick = () => { activeSection = 'arquivadas'; activeSala = sala; render(); };
           sublist.appendChild(item);
         });
+        // atalho discreto pro editor do checklist base
+        const baseItem = document.createElement('button');
+        baseItem.className = 'tab base-tab' + (activeSection === 'arquivadas' && activeSala === BASE_VIEW_ID ? ' active' : '');
+        baseItem.innerHTML = `<span>⚙ Checklist base</span><span class="count">${getBaseTemplate(state).length}</span>`;
+        baseItem.onclick = () => { activeSection = 'arquivadas'; activeSala = BASE_VIEW_ID; render(); };
+        sublist.appendChild(baseItem);
       }
 
       section.appendChild(sublist);
@@ -2123,6 +2303,9 @@ function collectDoneTasks(state, filterFn){
   return results;
 }
 
+// quais listas de concluídas estão abertas (sobrevive aos re-renders; começa recolhida)
+const openCompletedSections = new Set();
+
 function renderCompletedList(state, title, filterFn, contextLabelFn){
   const section = document.createElement('div');
   section.className = 'completed-section no-capture';
@@ -2140,6 +2323,24 @@ function renderCompletedList(state, title, filterFn, contextLabelFn){
     section.appendChild(empty);
     return section;
   }
+
+  // lista recolhida por padrão: clicar no título abre/fecha
+  section.classList.add('collapsible');
+  if (openCompletedSections.has(title)) section.classList.add('open');
+  heading.textContent = '';
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'completed-toggle';
+  toggle.setAttribute('aria-expanded', section.classList.contains('open') ? 'true' : 'false');
+  toggle.innerHTML = `<span class="completed-arrow">▶</span><span class="completed-title"></span><span class="completed-count">${doneTasks.length}</span>`;
+  toggle.querySelector('.completed-title').textContent = title;
+  toggle.addEventListener('click', () => {
+    const nowOpen = !section.classList.contains('open');
+    section.classList.toggle('open', nowOpen);
+    toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+    if (nowOpen) openCompletedSections.add(title); else openCompletedSections.delete(title);
+  });
+  heading.appendChild(toggle);
 
   const card = document.createElement('div');
   card.className = 'completed-card';
@@ -2227,82 +2428,6 @@ function renderSalaDetail(state, sala, isArchivedView){
   addBtn.onclick = () => showAddTaskModal(sala);
   actionsLeft.appendChild(addBtn);
 
-  const projectRow = document.createElement('div');
-  projectRow.className = 'project-link-row no-capture';
-  const projectBtn = document.createElement('button');
-  projectBtn.className = 'project-link-btn';
-  const editLinkBtn = document.createElement('button');
-  editLinkBtn.className = 'project-link-edit';
-  editLinkBtn.title = 'Trocar ou remover o link';
-  editLinkBtn.innerHTML = EDIT_ICON_SVG;
-  editLinkBtn.style.display = 'none';
-
-  function refreshProjectBtn(){
-    const link = (state.projectLinks && state.projectLinks[sala]) || '';
-    if (link){
-      projectBtn.innerHTML = '📄 Abrir projeto (PDF)';
-      editLinkBtn.style.display = 'inline-flex';
-    } else {
-      projectBtn.innerHTML = '+ Adicionar link do projeto (PDF)';
-      editLinkBtn.style.display = 'none';
-    }
-  }
-  refreshProjectBtn();
-
-  projectBtn.onclick = async () => {
-    const existing = (state.projectLinks && state.projectLinks[sala]) || '';
-    if (existing){
-      window.open(existing, '_blank', 'noopener');
-      return;
-    }
-    const url = prompt('Cole o link do Google Drive do projeto (PDF) dessa sala:\n(No Drive: botão direito no arquivo → Compartilhar → "Qualquer pessoa com o link")');
-    if (url === null) return;
-    const cleanUrl = url.trim();
-    if (!cleanUrl) return;
-    if (!/^https?:\/\//i.test(cleanUrl)){
-      alert('Isso não parece um link válido — precisa começar com http:// ou https://.');
-      return;
-    }
-    if (!state.projectLinks) state.projectLinks = {};
-    state.projectLinks[sala] = cleanUrl;
-    const ok = await saveState(state);
-    if (!ok){
-      delete state.projectLinks[sala];
-      alert('Não foi possível salvar agora. Tente novamente em instantes.');
-      return;
-    }
-    refreshProjectBtn();
-  };
-
-  editLinkBtn.onclick = async () => {
-    const current = (state.projectLinks && state.projectLinks[sala]) || '';
-    const url = prompt('Cole o novo link (ou apague tudo e confirme pra remover):', current);
-    if (url === null) return;
-    const cleanUrl = url.trim();
-    const backup = current;
-
-    if (!cleanUrl){
-      delete state.projectLinks[sala];
-    } else {
-      if (!/^https?:\/\//i.test(cleanUrl)){
-        alert('Isso não parece um link válido — precisa começar com http:// ou https://.');
-        return;
-      }
-      state.projectLinks[sala] = cleanUrl;
-    }
-
-    const ok = await saveState(state);
-    if (!ok){
-      state.projectLinks[sala] = backup;
-      alert('Não foi possível salvar agora. Tente novamente em instantes.');
-      return;
-    }
-    refreshProjectBtn();
-  };
-
-  projectRow.appendChild(projectBtn);
-  projectRow.appendChild(editLinkBtn);
-  actionsRight.appendChild(projectRow);
 
   const archiveBtn = document.createElement('button');
   archiveBtn.className = 'archive-btn no-capture';
@@ -2431,6 +2556,377 @@ function renderEmployeeDetail(state, employee){
   ));
 }
 
+const PANEL_COLLAPSED_KEY = 'checklist-projects-panel-collapsed-v2';
+// recolhido por padrão; só fica aberto se o usuário abrir (e a escolha é lembrada)
+function isProjectsPanelCollapsed(){
+  try{ return localStorage.getItem(PANEL_COLLAPSED_KEY) !== '0'; }catch(e){ return true; }
+}
+function setProjectsPanelCollapsed(v){
+  try{ localStorage.setItem(PANEL_COLLAPSED_KEY, v ? '1' : '0'); }catch(e){}
+}
+
+function showProjectDocModal(sala, index){
+  const list = getProjectDocs(appState, sala);
+  const current = (index !== null && index !== undefined) ? list[index] : null;
+  const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  openModal(`
+    <h3>${current ? 'Editar projeto' : 'Adicionar projeto'} — ${sala}</h3>
+    <div class="modal-field">
+      <label for="proj-name">Nome</label>
+      <input type="text" id="proj-name" value="${current ? esc(current.name) : ''}" placeholder="Ex: Projeto elétrico" />
+    </div>
+    <div class="modal-field">
+      <label for="proj-url">Link de visualização</label>
+      <input type="text" id="proj-url" value="${current ? esc(current.url) : ''}" placeholder="https://drive.google.com/..." />
+      <div class="modal-hint">No Google Drive: botão direito no arquivo → Compartilhar → "Qualquer pessoa com o link" → Copiar link.</div>
+    </div>
+    <div class="modal-error" id="proj-error"></div>
+    <div class="modal-actions">
+      ${current ? '<button class="modal-btn modal-btn-danger" id="proj-delete">Apagar</button><div style="flex:1;"></div>' : ''}
+      <button class="modal-btn modal-btn-cancel" id="proj-cancel">Cancelar</button>
+      <button class="modal-btn modal-btn-confirm" id="proj-confirm">Salvar</button>
+    </div>
+  `);
+  const nameEl = document.getElementById('proj-name');
+  nameEl.focus();
+  document.getElementById('proj-cancel').onclick = closeModal;
+
+  async function persist(mutator, failMsgEl, btn, idleLabel){
+    const backup = JSON.stringify(appState.projectDocs || {});
+    const err = mutator();
+    if (err){ failMsgEl.textContent = err; failMsgEl.classList.add('show'); return; }
+    failMsgEl.classList.remove('show');
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    const ok = await saveState(appState);
+    if (!ok){
+      appState.projectDocs = JSON.parse(backup);
+      btn.disabled = false; btn.textContent = idleLabel;
+      failMsgEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
+      failMsgEl.classList.add('show');
+      return;
+    }
+    closeModal();
+    render();
+  }
+  const errEl = document.getElementById('proj-error');
+  document.getElementById('proj-confirm').onclick = () => {
+    const btn = document.getElementById('proj-confirm');
+    persist(() => saveProjectDoc(appState, sala, current ? index : null,
+      document.getElementById('proj-name').value, document.getElementById('proj-url').value), errEl, btn, 'Salvar');
+  };
+  const delBtn = document.getElementById('proj-delete');
+  if (delBtn){
+    delBtn.onclick = () => {
+      if (!confirm(`Apagar o projeto "${current.name}" da lista? O arquivo no Drive não é afetado.`)) return;
+      persist(() => { deleteProjectDoc(appState, sala, index); return null; }, errEl, delBtn, 'Apagar');
+    };
+  }
+  document.getElementById('proj-url').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('proj-confirm').click(); });
+}
+
+/** Painel "Projetos" à direita da sala: um botão por projeto, que abre o link numa aba nova. */
+function renderProjectsPanel(state, sala, layoutEl){
+  const docs = getProjectDocs(state, sala);
+  const collapsed = isProjectsPanelCollapsed();
+  const panel = document.createElement('aside');
+  panel.className = 'projects-panel no-capture' + (collapsed ? ' collapsed' : '');
+
+  if (collapsed){
+    panel.innerHTML = `<div class="projects-head"><button type="button" class="projects-expand" title="Mostrar projetos">📁</button><span class="projects-count">${docs.length}</span></div>`;
+    panel.querySelector('.projects-expand').onclick = () => { setProjectsPanelCollapsed(false); render(); };
+    return panel;
+  }
+
+  const head = document.createElement('div');
+  head.className = 'projects-head';
+  head.innerHTML = '<h3>📁 Projetos</h3><button type="button" class="projects-collapse" title="Recolher painel">»</button>';
+  head.querySelector('.projects-collapse').onclick = () => { setProjectsPanelCollapsed(true); render(); };
+  panel.appendChild(head);
+
+  if (docs.length === 0){
+    const empty = document.createElement('p');
+    empty.className = 'projects-empty';
+    empty.textContent = 'Nenhum projeto adicionado nesta sala.';
+    panel.appendChild(empty);
+  } else {
+    const listEl = document.createElement('div');
+    listEl.className = 'projects-list';
+    docs.forEach((doc, idx) => {
+      const row = document.createElement('div');
+      row.className = 'project-item';
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'project-open';
+      open.title = doc.url;
+      const icon = document.createElement('span'); icon.textContent = '📄';
+      const nm = document.createElement('span'); nm.className = 'project-name'; nm.textContent = doc.name;
+      open.appendChild(icon); open.appendChild(nm);
+      open.onclick = () => window.open(doc.url, '_blank', 'noopener');
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'project-edit';
+      edit.title = 'Editar projeto';
+      edit.innerHTML = EDIT_ICON_SVG;
+      edit.onclick = () => showProjectDocModal(sala, idx);
+      row.appendChild(open); row.appendChild(edit);
+      listEl.appendChild(row);
+    });
+    panel.appendChild(listEl);
+  }
+
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'projects-add';
+  add.textContent = '+ Adicionar projeto';
+  add.onclick = () => showProjectDocModal(sala, null);
+  panel.appendChild(add);
+  return panel;
+}
+
+/** Envolve o conteúdo já montado da sala num layout de duas colunas (conteúdo + painel de projetos). */
+function wrapSalaWithProjectsPanel(state, sala){
+  const contentEl = document.getElementById('content');
+  const layout = document.createElement('div');
+  layout.className = 'sala-layout' + (isProjectsPanelCollapsed() ? ' panel-collapsed' : '');
+  const mainCol = document.createElement('div');
+  mainCol.style.minWidth = '0';
+  while (contentEl.firstChild) mainCol.appendChild(contentEl.firstChild);
+  layout.appendChild(mainCol);
+  layout.appendChild(renderProjectsPanel(state, sala, layout));
+  contentEl.appendChild(layout);
+}
+
+const BASE_VIEW_ID = '__checklist_base__';
+
+function showBaseItemModal(index){
+  const list = getBaseTemplate(appState);
+  const current = (index !== null && index !== undefined) ? list[index] : null;
+  const funcs = Array.from(new Set(employeesFromSeed(appState.seed).concat(list.map(it => it.func))))
+    .filter(f => f !== 'Compras').sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const optionsHtml = funcs.map(f => `<option value="${f}"${current && current.func === f ? ' selected' : ''}>${f}</option>`).join('');
+  const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const isFutureNow = !!(current && current.future);
+
+  openModal(`
+    <h3>${current ? 'Editar atividade padrão' : 'Nova atividade padrão'}</h3>
+    ${current ? '' : `
+    <div class="modal-field">
+      <label>Modo de cadastro</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="base-mode-unica">Única</button>
+        <button type="button" class="mode-btn" id="base-mode-multi">Múltiplas</button>
+      </div>
+    </div>`}
+    <div class="modal-field" id="base-text-field">
+      <label for="base-text">Atividade</label>
+      <input type="text" id="base-text" value="${current ? esc(current.text) : ''}" placeholder="Ex: Executar infra de tomadas" />
+    </div>
+    <div class="modal-field" id="base-text-multi-field" style="display:none;">
+      <label for="base-text-multi">Atividades (uma por linha)</label>
+      <textarea id="base-text-multi" rows="6" placeholder="Executar infra de tomadas
+Executar infra de interruptores
+Instalar iluminação"></textarea>
+      <div class="modal-hint">Cada linha vira uma atividade padrão, todas com o mesmo responsável e "Atual/Futura" abaixo.</div>
+    </div>
+    <div class="modal-field">
+      <label for="base-func-select">Responsável</label>
+      <select id="base-func-select">
+        ${optionsHtml}
+        <option value="__new__"${funcs.length ? '' : ' selected'}>Outro (digitar nome novo)</option>
+      </select>
+    </div>
+    <div class="modal-field" id="base-func-new-field" style="display:${funcs.length ? 'none' : 'block'};">
+      <label for="base-func-new">Nome do responsável</label>
+      <input type="text" id="base-func-new" placeholder="Ex: Eletricista" />
+    </div>
+    <div class="modal-field" id="base-subitems-field">
+      <label for="base-subitems">Subitens (opcional, um por linha)</label>
+      <textarea id="base-subitems" rows="4" placeholder="Finalizar perfis
+Finalizar vigas">${current ? esc(current.subitems.join('\n')) : ''}</textarea>
+    </div>
+    <div class="modal-field">
+      <label>Quando?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn${isFutureNow ? '' : ' active'}" id="base-timing-atual">Atual</button>
+        <button type="button" class="mode-btn${isFutureNow ? ' active' : ''}" id="base-timing-futura">Futura</button>
+      </div>
+      <div class="modal-hint">"Futura" já entra guardada na sala nova, até ser liberada.</div>
+    </div>
+    <div class="modal-hint">Textos com "Comprar"/"Compra" vão automaticamente pra aba Compras.</div>
+    <div class="modal-error" id="base-error"></div>
+    <div class="modal-actions">
+      ${current ? '<button class="modal-btn modal-btn-danger" id="base-delete">Apagar</button><div style="flex:1;"></div>' : ''}
+      <button class="modal-btn modal-btn-cancel" id="base-cancel">Cancelar</button>
+      <button class="modal-btn modal-btn-confirm" id="base-confirm">Salvar</button>
+    </div>
+  `);
+
+  const funcSelect = document.getElementById('base-func-select');
+  const funcNewField = document.getElementById('base-func-new-field');
+  funcSelect.addEventListener('change', () => {
+    funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
+  });
+  let future = isFutureNow;
+  const tAtual = document.getElementById('base-timing-atual');
+  const tFutura = document.getElementById('base-timing-futura');
+  tAtual.onclick = () => { future = false; tAtual.classList.add('active'); tFutura.classList.remove('active'); };
+  tFutura.onclick = () => { future = true; tFutura.classList.add('active'); tAtual.classList.remove('active'); };
+
+  let baseMode = 'unica';
+  const modeUnica = document.getElementById('base-mode-unica');
+  const modeMulti = document.getElementById('base-mode-multi');
+  const confirmEl = document.getElementById('base-confirm');
+  function setBaseMode(mode){
+    baseMode = mode;
+    modeUnica.classList.toggle('active', mode === 'unica');
+    modeMulti.classList.toggle('active', mode === 'multiplas');
+    document.getElementById('base-text-field').style.display = mode === 'unica' ? 'block' : 'none';
+    document.getElementById('base-text-multi-field').style.display = mode === 'multiplas' ? 'block' : 'none';
+    // subitens só no modo "Única" (em "Múltiplas" cada linha é uma atividade separada)
+    document.getElementById('base-subitems-field').style.display = mode === 'unica' ? 'block' : 'none';
+    confirmEl.textContent = mode === 'unica' ? 'Salvar' : 'Salvar todas';
+    (mode === 'unica' ? document.getElementById('base-text') : document.getElementById('base-text-multi')).focus();
+  }
+  if (modeUnica && modeMulti){
+    modeUnica.onclick = () => setBaseMode('unica');
+    modeMulti.onclick = () => setBaseMode('multiplas');
+  }
+
+  document.getElementById('base-cancel').onclick = closeModal;
+  const delBtn = document.getElementById('base-delete');
+  if (delBtn){
+    delBtn.onclick = async () => {
+      if (!confirm(`Apagar "${current.text}" do checklist base? As salas já criadas não são afetadas.`)) return;
+      deleteBaseItem(appState, index);
+      const ok = await saveState(appState);
+      if (!ok){
+        const errEl = document.getElementById('base-error');
+        errEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
+        errEl.classList.add('show');
+        return;
+      }
+      closeModal();
+      render();
+    };
+  }
+  document.getElementById('base-confirm').onclick = async () => {
+    const errEl = document.getElementById('base-error');
+    const func = funcSelect.value === '__new__' ? document.getElementById('base-func-new').value.trim() : funcSelect.value;
+    const btn = document.getElementById('base-confirm');
+    const idleLabel = btn.textContent;
+
+    if (!current && baseMode === 'multiplas'){
+      const lines = parseSubitemTexts(document.getElementById('base-text-multi').value); // limpa linhas vazias e repetidas
+      if (lines.length === 0){ errEl.textContent = 'Digite pelo menos uma atividade (uma por linha).'; errEl.classList.add('show'); return; }
+      if (!func){ errEl.textContent = 'Escolha ou digite um responsável.'; errEl.classList.add('show'); return; }
+      let added = 0;
+      lines.forEach(t => { if (saveBaseItem(appState, null, func, t, [], future)) added++; });
+      if (added === 0){
+        errEl.textContent = 'Todas essas atividades já existem para esse responsável no checklist base.';
+        errEl.classList.add('show');
+        return;
+      }
+      errEl.classList.remove('show');
+      btn.textContent = 'Salvando...'; btn.disabled = true;
+      const okMulti = await saveState(appState);
+      if (!okMulti){
+        btn.textContent = idleLabel; btn.disabled = false;
+        errEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
+        errEl.classList.add('show');
+        return;
+      }
+      closeModal();
+      render();
+      return;
+    }
+
+    const text = document.getElementById('base-text').value.trim();
+    if (!text){ errEl.textContent = 'Digite o texto da atividade.'; errEl.classList.add('show'); return; }
+    if (!func){ errEl.textContent = 'Escolha ou digite um responsável.'; errEl.classList.add('show'); return; }
+    const subs = parseSubitemTexts(document.getElementById('base-subitems').value);
+    if (!saveBaseItem(appState, (current ? index : null), func, text, subs, future)){
+      errEl.textContent = 'Já existe essa atividade para esse responsável no checklist base.';
+      errEl.classList.add('show');
+      return;
+    }
+    btn.textContent = 'Salvando...'; btn.disabled = true;
+    const ok = await saveState(appState);
+    if (!ok){
+      btn.textContent = idleLabel; btn.disabled = false;
+      errEl.textContent = 'Não foi possível salvar agora. Tente novamente em instantes.';
+      errEl.classList.add('show');
+      return;
+    }
+    closeModal();
+    render();
+  };
+}
+
+/** Tela "⚙ Checklist base" (dentro de Arquivadas): lista e edita as atividades padrão. */
+function renderBaseEditor(state){
+  const contentEl = document.getElementById('content');
+  const list = getBaseTemplate(state);
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'employee-name';
+  nameEl.textContent = '⚙ Checklist base';
+  contentEl.appendChild(nameEl);
+
+  const hint = document.createElement('div');
+  hint.className = 'modal-hint no-capture';
+  hint.style.margin = '0 0 14px';
+  hint.textContent = 'Atividades padrão que entram sozinhas quando você cria uma sala nova marcando "Usar checklist base". Alterar aqui não muda as salas que já existem.';
+  contentEl.appendChild(hint);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-task-btn no-capture';
+  addBtn.textContent = '+ Adicionar atividade padrão';
+  addBtn.onclick = () => showBaseItemModal(null);
+  contentEl.appendChild(addBtn);
+
+  if (list.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Nenhuma atividade padrão cadastrada ainda.';
+    contentEl.appendChild(empty);
+    return;
+  }
+
+  const board = document.createElement('div');
+  board.className = 'sala-board';
+  const groups = {};
+  list.forEach((it, idx) => { (groups[it.func] = groups[it.func] || []).push({ it, idx }); });
+  Object.keys(groups).sort((a, b) => a.localeCompare(b, 'pt-BR')).forEach(func => {
+    const card = document.createElement('div');
+    card.className = 'sala-card';
+    const head = document.createElement('div');
+    head.className = 'sala-head';
+    head.innerHTML = `<h3>${func}</h3><span class="sala-count">${groups[func].length}</span>`;
+    card.appendChild(head);
+    const ul = document.createElement('ul');
+    ul.className = 'task-list';
+    groups[func].forEach(({ it, idx }) => {
+      const li = document.createElement('li');
+      li.className = 'task-item' + (it.future ? ' future' : '');
+      li.innerHTML = `
+        <div class="task-item-body">
+          <div class="task-item-row">
+            <label>${it.text}</label>
+            <button type="button" class="edit-task-btn" title="Editar atividade padrão">${EDIT_ICON_SVG}</button>
+          </div>
+          ${it.future ? '<span class="subitem-count">Futura</span>' : ''}
+          ${it.subitems.length ? `<ul class="subitem-list">${it.subitems.map(t => `<li><label>${t}</label></li>`).join('')}</ul>` : ''}
+        </div>
+      `;
+      li.querySelector('.edit-task-btn').onclick = () => showBaseItemModal(idx);
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+    board.appendChild(card);
+  });
+  contentEl.appendChild(board);
+}
+
 function renderContent(state){
   const contentEl = document.getElementById('content');
   contentEl.innerHTML = '';
@@ -2459,15 +2955,21 @@ function renderContent(state){
       return;
     }
     renderSalaDetail(state, activeSala, false);
+    wrapSalaWithProjectsPanel(state, activeSala);
     return;
   }
 
   if (activeSection === 'arquivadas'){
+    if (activeSala === BASE_VIEW_ID){
+      renderBaseEditor(state);
+      return;
+    }
     if (!activeSala || !archivedSalas.includes(activeSala)){
       renderSalaAggregate(state, archivedSalas, 'Arquivadas', 'Nenhuma sala arquivada.');
       return;
     }
     renderSalaDetail(state, activeSala, true);
+    wrapSalaWithProjectsPanel(state, activeSala);
     return;
   }
 
@@ -2649,7 +3151,12 @@ document.getElementById('download-img-btn').addEventListener('click', async () =
     const canvas = await html2canvas(target, {
       backgroundColor: isDark ? '#121210' : '#F4F3EF',
       scale: 2,
-      ignoreElements: (el) => el.classList && el.classList.contains('no-capture')
+      ignoreElements: (el) => el.classList && el.classList.contains('no-capture'),
+      onclone: (doc) => {
+        // o painel de projetos não sai na imagem — e a coluna dele também não fica em branco
+        doc.querySelectorAll('.projects-panel').forEach(el => { el.style.display = 'none'; });
+        doc.querySelectorAll('.sala-layout').forEach(el => { el.style.display = 'block'; });
+      }
     });
     let label = 'checklist';
     if (activeSection === 'calendario') label = 'calendario-geral';
@@ -2709,11 +3216,24 @@ document.getElementById('modal-overlay').addEventListener('click', (e) => {
 });
 
 function showNewSalaModal(){
+  const baseItems = getBaseTemplate(appState);
+  const baseCount = baseItems.length;
+  const baseFuture = baseItems.filter(it => it.future).length;
   openModal(`
     <h3>Nova sala</h3>
     <div class="modal-field">
       <label for="new-sala-name">Nome da sala</label>
       <input type="text" id="new-sala-name" placeholder="Ex: Sala 1301" />
+    </div>
+    <div class="modal-field">
+      <label>Usar checklist base?</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="base-btn-nao">Não</button>
+        <button type="button" class="mode-btn" id="base-btn-sim"${baseCount ? '' : ' disabled'}>Sim</button>
+      </div>
+      <div class="modal-hint">${baseCount
+        ? `Já cadastra ${baseCount} atividade${baseCount > 1 ? 's' : ''} padrão${baseFuture ? ` (${baseFuture} futura${baseFuture > 1 ? 's' : ''})` : ''} na sala nova.`
+        : 'O checklist base está vazio. Monte-o em Arquivadas → ⚙ Checklist base.'}</div>
     </div>
     <div class="modal-error" id="new-sala-error"></div>
     <div class="modal-actions">
@@ -2724,6 +3244,12 @@ function showNewSalaModal(){
 
   const input = document.getElementById('new-sala-name');
   input.focus();
+
+  let useBase = false;
+  const baseBtnNao = document.getElementById('base-btn-nao');
+  const baseBtnSim = document.getElementById('base-btn-sim');
+  baseBtnNao.onclick = () => { useBase = false; baseBtnNao.classList.add('active'); baseBtnSim.classList.remove('active'); };
+  baseBtnSim.onclick = () => { if (!baseCount) return; useBase = true; baseBtnSim.classList.add('active'); baseBtnNao.classList.remove('active'); };
 
   document.getElementById('new-sala-cancel').onclick = closeModal;
   document.getElementById('new-sala-confirm').onclick = async () => {
@@ -2746,6 +3272,7 @@ function showNewSalaModal(){
     confirmBtn.disabled = true;
 
     addCustomSala(appState, name);
+    if (useBase) applyBaseTemplate(appState, name);
     const ok = await saveState(appState);
 
     if (!ok){
