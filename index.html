@@ -287,7 +287,7 @@
     display:block;font-size:12px;font-weight:700;color:var(--text-secondary);
     margin-bottom:5px;
   }
-  .modal-field input[type="text"], .modal-field select, .modal-field textarea{
+  .modal-field input[type="text"], .modal-field input[type="date"], .modal-field select, .modal-field textarea{
     width:100%;padding:9px 10px;font-size:14px;border:1px solid var(--border);
     border-radius:6px;font-family:inherit;box-sizing:border-box;background:var(--card);color:var(--text);
   }
@@ -406,10 +406,16 @@
   .task-item.done label{color:var(--text-secondary);text-decoration:line-through;}
 
   .task-item.needs-material{
-    background:rgba(220,38,38,0.07);border-left:3px solid #DC2626;
+    background:rgba(245,158,11,0.10);border-left:3px solid #F59E0B;
     border-radius:6px;padding-left:8px;margin-left:-2px;
   }
-  .task-item.needs-material:hover{background:rgba(220,38,38,0.12);}
+  .task-item.needs-material:hover{background:rgba(245,158,11,0.16);}
+  /* alerta de prazo: vermelho (vence sobre o amarelo de material) */
+  .task-item.late{
+    background:rgba(220,38,38,0.08);border-left:3px solid #DC2626;
+    border-radius:6px;padding-left:8px;margin-left:-2px;
+  }
+  .task-item.late:hover{background:rgba(220,38,38,0.13);}
   .task-item.priority > .task-item-body label,
   .task-item.priority > .task-item-body .task-item-row label{font-weight:800;}
   .priority-star{color:var(--gold);margin-right:4px;}
@@ -422,9 +428,40 @@
   .subitem-count{font-size:10.5px;font-weight:700;color:var(--text-secondary);background:var(--card-alt);padding:2px 8px;border-radius:10px;margin-top:6px;display:inline-block;margin-right:6px;}
   .material-badge{
     display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
-    color:#DC2626;background:rgba(220,38,38,0.14);padding:2px 8px;border-radius:10px;
-    margin-top:6px;
+    color:#92400E;background:rgba(245,158,11,0.22);padding:2px 8px;border-radius:10px;
+    margin-top:6px;margin-right:6px;
   }
+  body.theme-dark .material-badge{color:#FBBF24;}
+  .date-badge{
+    display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
+    color:var(--text-secondary);background:var(--card-alt);border:1px solid var(--border);
+    padding:1px 8px;border-radius:10px;margin-top:6px;margin-right:6px;
+  }
+  .date-badge.late{color:#B91C1C;background:rgba(220,38,38,0.12);border-color:rgba(220,38,38,0.35);}
+  body.theme-dark .date-badge.late{color:#F87171;}
+
+  .task-progress{display:flex;align-items:center;gap:8px;margin-top:5px;}
+  .progress-slider{
+    -webkit-appearance:none;appearance:none;flex:1;min-width:0;height:18px;margin:0;cursor:pointer;
+    background:transparent;touch-action:pan-y;--p:0%;--fill:var(--gold);
+  }
+  .progress-slider.full{--fill:#16A34A;}
+  .progress-slider::-webkit-slider-runnable-track{
+    height:6px;border-radius:3px;
+    background:linear-gradient(to right,var(--fill) var(--p),var(--track-bg) var(--p));
+  }
+  .progress-slider::-moz-range-track{height:6px;border-radius:3px;background:var(--track-bg);}
+  .progress-slider::-moz-range-progress{height:6px;border-radius:3px;background:var(--fill);}
+  .progress-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;margin-top:-5px;
+    background:#fff;border:2px solid var(--fill);box-shadow:0 1px 3px rgba(0,0,0,0.25);
+  }
+  .progress-slider::-moz-range-thumb{
+    width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--fill);
+    box-shadow:0 1px 3px rgba(0,0,0,0.25);
+  }
+  .progress-slider:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px;}
+  .task-progress-label{font-size:11px;font-weight:700;color:var(--text-secondary);min-width:32px;text-align:right;}
 
   .task-item-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
   .task-item-row label{flex:1;}
@@ -656,7 +693,7 @@ const STORAGE_KEY = 'checklist:obras-fibonacci';
 // Muda a cada vez que a estrutura da página é atualizada. Na primeira vez que
 // uma versão nova abre, o app guarda uma cópia de segurança dos dados ANTES
 // de mexer em qualquer coisa.
-const APP_VERSION = '2026-10-23-g';
+const APP_VERSION = '2026-10-27-b';
 
 // dados originais levantados (sala -> funcionario -> [tarefas])
 const BASE_SEED = {
@@ -1019,6 +1056,8 @@ async function loadStoredPayload(){
         materialDependency: decodeKeyedMapFromFirebase(raw.materialDependency),
         priority: decodeKeyedMapFromFirebase(raw.priority),
         future: decodeKeyedMapFromFirebase(raw.future),
+        progress: decodeKeyedMapFromFirebase(raw.progress),
+        dates: decodeKeyedMapFromFirebase(raw.dates),
         baseTemplate: raw.baseTemplate,
         projectDocs: decodeKeyedMapFromFirebase(raw.projectDocs),
         orphanDone: decodeKeyedMapFromFirebase(raw.orphanDone),
@@ -1087,6 +1126,8 @@ async function writeStoredPayload(payload){
       materialDependency: encodeKeyedMapForFirebase(payload.materialDependency),
       priority: encodeKeyedMapForFirebase(payload.priority),
       future: encodeKeyedMapForFirebase(payload.future),
+      progress: encodeKeyedMapForFirebase(payload.progress),
+      dates: encodeKeyedMapForFirebase(payload.dates),
       baseTemplate: payload.baseTemplate,
       projectDocs: encodeKeyedMapForFirebase(payload.projectDocs),
       orphanDone: encodeKeyedMapForFirebase(payload.orphanDone),
@@ -1159,6 +1200,8 @@ function buildPayload(state){
     materialDependency: state.materialDependency,
     priority: state.priority,
     future: state.future,
+    progress: state.progress,
+    dates: state.dates,
     baseTemplate: state.baseTemplate,
     projectDocs: state.projectDocs,
     subitems: state.subitems,
@@ -1183,6 +1226,8 @@ async function loadState(){
   let storedMaterialDependency = {};
   let storedPriority = {};
   let storedFuture = {};
+  let storedProgress = {};
+  let storedDates = {};
   let storedBaseTemplate = [];
   let storedProjectDocs = {};
   let storedOrphanDone = {};
@@ -1209,6 +1254,8 @@ async function loadState(){
     if (parsed && parsed.materialDependency) storedMaterialDependency = JSON.parse(JSON.stringify(parsed.materialDependency));
     if (parsed && parsed.priority) storedPriority = JSON.parse(JSON.stringify(parsed.priority));
     if (parsed && parsed.future) storedFuture = JSON.parse(JSON.stringify(parsed.future));
+    if (parsed && parsed.progress) storedProgress = normalizeProgress(parsed.progress);
+    if (parsed && parsed.dates) storedDates = normalizeDates(parsed.dates);
     if (parsed && parsed.baseTemplate) storedBaseTemplate = normalizeBaseTemplate(parsed.baseTemplate);
     if (parsed && parsed.projectDocs) storedProjectDocs = normalizeProjectDocs(parsed.projectDocs);
     if (parsed && parsed.orphanDone) storedOrphanDone = JSON.parse(JSON.stringify(parsed.orphanDone));
@@ -1289,7 +1336,7 @@ async function loadState(){
     hiddenTasks: storedHiddenTasks, purchaseStatus: storedPurchaseStatus,
     customSalas: storedCustomSalas, projectLinks: storedProjectLinks,
     materialDependency: storedMaterialDependency,
-    priority: storedPriority, future: storedFuture, baseTemplate: storedBaseTemplate, projectDocs: storedProjectDocs, subitems: storedSubitems,
+    priority: storedPriority, future: storedFuture, progress: storedProgress, dates: storedDates, baseTemplate: storedBaseTemplate, projectDocs: storedProjectDocs, subitems: storedSubitems,
     orphanDone, orphanSchedule,
     done, schedule, lastUpdated
   };
@@ -1465,7 +1512,7 @@ function unarchiveSala(state, sala){
   delete state.archived[sala];
 }
 
-/** Lê/marca se uma tarefa depende de material (destacada em vermelho na tela). */
+/** Lê/marca se uma tarefa depende de material (destacada em amarelo na tela). */
 function dependsOnMaterial(state, key){
   return !!(state.materialDependency && state.materialDependency[key]);
 }
@@ -1483,6 +1530,114 @@ function setPriority(state, key, value){
   if (!state.priority) state.priority = {};
   if (value) state.priority[key] = true;
   else delete state.priority[key];
+}
+
+/**
+ * Progresso manual da atividade: 10, 20, ... 100 (%). Só um valor por vez;
+ * 0 = sem progresso marcado (a chave é removida).
+ */
+const PROGRESS_STEPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+function normalizeProgress(raw){
+  const out = {};
+  Object.keys(raw || {}).forEach(k => {
+    const v = Math.round(Number(raw[k]) / 10) * 10;
+    if (v >= 10 && v <= 100) out[k] = v;
+  });
+  return out;
+}
+function getProgress(state, key){
+  return (state.progress && Number(state.progress[key])) || 0;
+}
+function setProgress(state, key, value){
+  if (!state.progress) state.progress = {};
+  const v = Math.round(Number(value) / 10) * 10;
+  if (v >= 10 && v <= 100) state.progress[key] = v;
+  else delete state.progress[key];
+}
+
+/**
+ * Previsão de início e conclusão: { start: 'AAAA-MM-DD', end: 'AAAA-MM-DD' }.
+ * Atividade não concluída fica em alerta (vermelho) a partir de 1 dia antes da conclusão.
+ */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function normalizeDates(raw){
+  const out = {};
+  Object.keys(raw || {}).forEach(k => {
+    const v = raw[k] || {};
+    const o = {};
+    if (DATE_RE.test(v.start || '')) o.start = v.start;
+    if (DATE_RE.test(v.end || '')) o.end = v.end;
+    if (o.start || o.end) out[k] = o;
+  });
+  return out;
+}
+function getTaskDates(state, key){
+  return (state.dates && state.dates[key]) || {};
+}
+function setTaskDates(state, key, start, end){
+  if (!state.dates) state.dates = {};
+  const o = {};
+  if (DATE_RE.test(start || '')) o.start = start;
+  if (DATE_RE.test(end || '')) o.end = end;
+  if (o.start || o.end) state.dates[key] = o;
+  else delete state.dates[key];
+}
+/** Data local (fuso do aparelho) como 'AAAA-MM-DD', deslocada em N dias. */
+function localDateStr(offsetDays){
+  const d = new Date();
+  d.setDate(d.getDate() + (offsetDays || 0));
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function formatDateBR(iso){
+  if (!DATE_RE.test(iso || '')) return '';
+  const [y, m, d] = iso.split('-');
+  return y === String(new Date().getFullYear()) ? `${d}/${m}` : `${d}/${m}/${y.slice(2)}`;
+}
+/** Em alerta: não concluída e hoje já é (prazo − 1 dia) ou depois. */
+function isLate(state, key){
+  if (state.done && state.done[key]) return false;
+  const end = getTaskDates(state, key).end;
+  if (!end) return false;
+  return end <= localDateStr(1);
+}
+/** Selo com as datas (vermelho quando em alerta). Vazio se não tiver datas. */
+function dateBadgeHtml(state, key){
+  const { start, end } = getTaskDates(state, key);
+  if (!start && !end) return '';
+  if (isLate(state, key)){
+    const today = localDateStr(0);
+    const msg = end < today ? `Atrasada — prazo ${formatDateBR(end)}`
+      : end === today ? `Prazo hoje (${formatDateBR(end)})`
+      : `Prazo amanhã (${formatDateBR(end)})`;
+    return `<span class="date-badge late" title="Previsão de conclusão">⚠ ${msg}</span>`;
+  }
+  const txt = start && end ? `${formatDateBR(start)} → ${formatDateBR(end)}`
+    : start ? `Início ${formatDateBR(start)}` : `Conclusão ${formatDateBR(end)}`;
+  return `<span class="date-badge" title="Previsão de início e conclusão">📅 ${txt}</span>`;
+}
+/** Lê e valida os dois campos de data de um formulário. Retorna { start, end } ou { error }. */
+function readDateInputs(startId, endId){
+  const s = (document.getElementById(startId) || {}).value || '';
+  const e = (document.getElementById(endId) || {}).value || '';
+  if (s && e && e < s) return { error: 'A previsão de conclusão não pode ser antes do início.' };
+  return { start: s, end: e };
+}
+function dateFieldsHtml(prefix, current){
+  current = current || {};
+  return `
+        <div class="modal-row2">
+          <div class="modal-field">
+            <label for="${prefix}date-start">Previsão de início</label>
+            <input type="date" id="${prefix}date-start" value="${current.start || ''}" />
+          </div>
+          <div class="modal-field">
+            <label for="${prefix}date-end">Previsão de conclusão</label>
+            <input type="date" id="${prefix}date-end" value="${current.end || ''}" />
+          </div>
+        </div>
+        <div class="modal-hint" style="margin:-8px 0 14px;">Fica em vermelho se não estiver concluída 1 dia antes da conclusão.</div>
+`;
 }
 
 /**
@@ -1558,7 +1713,7 @@ function setTaskDoneWithSubitems(state, key, value){
  * Aplica a regra automática: texto com "Comprar"/"Compra" vai pro
  * funcionário virtual "Compras", independente do responsável escolhido.
  */
-function addCustomTask(state, sala, func, text, days, needsMaterial, priority, subitemTexts, future){
+function addCustomTask(state, sala, func, text, days, needsMaterial, priority, subitemTexts, future, dates){
   const cleanText = String(text || '').trim();
   if (!cleanText) return null;
 
@@ -1578,6 +1733,7 @@ function addCustomTask(state, sala, func, text, days, needsMaterial, priority, s
   setPriority(state, key, !!priority);
   if (effectiveFunc !== 'Compras') setSubitems(state, key, subitemTexts);
   setFuture(state, key, !!future);
+  if (dates) setTaskDates(state, key, dates.start, dates.end);
 
   return { func: effectiveFunc, key, redirected: effectiveFunc === 'Compras' && effectiveFunc !== func };
 }
@@ -1601,7 +1757,7 @@ function removeFromCustomSeed(state, sala, func, text){
  * nova entrada equivalente entra no customSeed, migrando o progresso (done)
  * e o agendamento (schedule) da chave antiga pra chave nova.
  */
-function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial, priority, subitemTexts, future){
+function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMaterial, priority, subitemTexts, future, dates){
   const oldKey = taskKey(oldFunc, sala, oldText);
   const cleanText = String(newText || '').trim();
   if (!cleanText) return null;
@@ -1643,6 +1799,15 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
       if (state.subitems[oldKey]) state.subitems[newKey] = state.subitems[oldKey];
       delete state.subitems[oldKey];
     }
+    // progresso e datas acompanham a atividade quando o texto/responsável muda
+    if (state.progress){
+      if (state.progress[oldKey]) state.progress[newKey] = state.progress[oldKey];
+      delete state.progress[oldKey];
+    }
+    if (state.dates){
+      if (state.dates[oldKey]) state.dates[newKey] = state.dates[oldKey];
+      delete state.dates[oldKey];
+    }
   } else if (cleanDays.length){
     state.schedule[newKey] = cleanDays;
   } else {
@@ -1659,6 +1824,9 @@ function editTask(state, sala, oldFunc, oldText, newFunc, newText, days, needsMa
   }
   // undefined = mantém como estava (atual/futura)
   if (future !== undefined) setFuture(state, newKey, !!future);
+  // undefined = mantém as datas como estavam
+  if (dates !== undefined) setTaskDates(state, newKey, dates && dates.start, dates && dates.end);
+  if (effectiveFunc === 'Compras' && state.progress) delete state.progress[newKey];
 
   return { func: effectiveFunc, key: newKey };
 }
@@ -1682,6 +1850,8 @@ function deleteTask(state, sala, func, text){
   setDependsOnMaterial(state, key, false);
   setPriority(state, key, false);
   if (state.future) delete state.future[key];
+  if (state.progress) delete state.progress[key];
+  if (state.dates) delete state.dates[key];
   if (state.subitems) delete state.subitems[key];
   return { key };
 }
@@ -1913,7 +2083,8 @@ function renderTaskItem(state, func, sala, text, opts){
   const li = document.createElement('li');
   const priorityOn = isPriority(state, key);
   const subs = isCompra ? [] : getSubitems(state, key);
-  li.className = 'task-item' + (needsMaterial ? ' needs-material' : '') + (priorityOn ? ' priority' : '');
+  const lateOn = isLate(state, key);
+  li.className = 'task-item' + (needsMaterial ? ' needs-material' : '') + (lateOn ? ' late' : '') + (priorityOn ? ' priority' : '');
   const inputId = 'chk_' + key.replace(/[^a-zA-Z0-9]/g, '_');
   const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
   const materialBadgeHtml = needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : '';
@@ -1924,10 +2095,14 @@ function renderTaskItem(state, func, sala, text, opts){
         <label${isCompra ? '' : ` for="${inputId}"`}>${contextHtml}${text}</label>
         <button type="button" class="edit-task-btn no-capture" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
-      ${materialBadgeHtml}
+      ${dateBadgeHtml(state, key)}${materialBadgeHtml}
       ${subs.length ? `<span class="subitem-count">${subs.filter(x => x.done).length}/${subs.length} subitens</span>` : ''}
       ${subs.length ? '<ul class="subitem-list"></ul>' : ''}
-      ${isCompra ? '<div class="purchase-stages"></div>' : '<div class="day-pills"></div>'}
+      ${isCompra ? '<div class="purchase-stages"></div>' : `<div class="day-pills"></div>
+      <div class="task-progress no-capture-controls" title="Arraste para marcar o progresso (de 10 em 10%)">
+        <input type="range" class="progress-slider" min="0" max="100" step="10" value="0" aria-label="Progresso da atividade" />
+        <span class="task-progress-label"></span>
+      </div>`}
     </div>
   `;
 
@@ -1988,6 +2163,31 @@ function renderTaskItem(state, func, sala, text, opts){
       });
       pillsEl.appendChild(pill);
     });
+
+    // progresso: arrastar a bolinha da barra (de 10 em 10%); 0 = sem progresso
+    const progress = getProgress(state, key);
+    const slider = li.querySelector('.progress-slider');
+    const labelEl = li.querySelector('.task-progress-label');
+    const paint = v => {
+      slider.style.setProperty('--p', v + '%');
+      slider.classList.toggle('full', v === 100);
+      labelEl.textContent = v + '%';
+    };
+    slider.value = progress;
+    paint(progress);
+    slider.addEventListener('input', () => paint(Number(slider.value)));
+    slider.addEventListener('change', async () => {
+      const before = getProgress(state, key);
+      const value = Number(slider.value);
+      if (value === before) return;
+      setProgress(state, key, value);
+      const ok = await saveState(state);
+      if (!ok){
+        setProgress(state, key, before);
+        alert('Não foi possível salvar agora. Tente novamente em instantes.');
+      }
+      render();
+    });
   }
 
   li.querySelector('.edit-task-btn').addEventListener('click', () => {
@@ -2010,7 +2210,7 @@ function renderFutureItem(state, func, sala, text, opts){
   const needsMaterial = dependsOnMaterial(state, key);
   const subs = func === 'Compras' ? [] : getSubitems(state, key);
   const li = document.createElement('li');
-  li.className = 'task-item future' + (needsMaterial ? ' needs-material' : '') + (isPriority(state, key) ? ' priority' : '');
+  li.className = 'task-item future' + (needsMaterial ? ' needs-material' : '') + (isLate(state, key) ? ' late' : '') + (isPriority(state, key) ? ' priority' : '');
   const contextHtml = opts.showContext ? `<span class="chip-context" style="display:block;">${func}</span>` : '';
   li.innerHTML = `
     <span class="future-icon" title="Atividade futura">${CLOCK_ICON_SVG}</span>
@@ -2020,7 +2220,7 @@ function renderFutureItem(state, func, sala, text, opts){
         <button type="button" class="release-btn" title="Passar para atividade atual">Liberar</button>
         <button type="button" class="edit-task-btn" title="Editar atividade">${EDIT_ICON_SVG}</button>
       </div>
-      ${needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : ''}
+      ${dateBadgeHtml(state, key)}${needsMaterial ? '<span class="material-badge">🧱 Depende de material</span>' : ''}
       ${subs.length ? `<span class="subitem-count">${subs.length} subitens</span>` : ''}
     </div>
   `;
@@ -2131,7 +2331,7 @@ function collectScheduledTasks(state, filterFn){
         // tarefas concluídas saem do calendário (ficam só na lista de concluídas);
         // futuras também ficam fora até serem liberadas
         if (days.length > 0 && !isDone && !isFuture(state, key)){
-          results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key), priority: isPriority(state, key) });
+          results.push({ func, sala, text, key, days, done: isDone, needsMaterial: dependsOnMaterial(state, key), late: isLate(state, key), priority: isPriority(state, key) });
         }
       });
     }
@@ -2182,14 +2382,17 @@ function renderWeekCalendar(state, title, filterFn, contextLabelFn){
       body.innerHTML = '<div class="calendar-day-empty">—</div>';
     } else {
       dayTasks.forEach(t => {
-        const color = t.needsMaterial ? '#DC2626' : colorForEmployee(t.func);
+        // vermelho = prazo em alerta; amarelo = depende de material
+        const color = t.late ? '#DC2626' : (t.needsMaterial ? '#F59E0B' : colorForEmployee(t.func));
         const chip = document.createElement('div');
-        chip.className = 'calendar-chip' + (t.done ? ' done' : '') + (t.needsMaterial ? ' needs-material' : '') + (t.priority ? ' priority' : '');
+        chip.className = 'calendar-chip' + (t.done ? ' done' : '') + (t.needsMaterial ? ' needs-material' : '') + (t.late ? ' late' : '') + (t.priority ? ' priority' : '');
         chip.style.borderLeft = `4px solid ${color}`;
-        chip.style.background = hexToRgba(color, t.needsMaterial ? 0.14 : 0.1);
+        chip.style.background = hexToRgba(color, (t.late || t.needsMaterial) ? 0.14 : 0.1);
         const ctx = contextLabelFn ? contextLabelFn(t) : '';
+        const lateTag = t.late ? `<span class="date-badge late" style="margin-top:4px;">⚠ Prazo ${formatDateBR(getTaskDates(state, t.key).end)}</span>` : '';
         const materialTag = t.needsMaterial ? '<span class="material-badge" style="margin-top:4px;">🧱 Material</span>' : '';
-        chip.innerHTML = (ctx ? `<span class="chip-context" style="color:${color}">${ctx}</span>` : '') + t.text + materialTag;
+        const ctxColor = t.late ? '#DC2626' : (t.needsMaterial ? '#B45309' : color);
+        chip.innerHTML = (ctx ? `<span class="chip-context" style="color:${ctxColor}">${ctx}</span>` : '') + t.text + lateTag + materialTag;
         body.appendChild(chip);
       });
     }
@@ -2233,7 +2436,7 @@ function renderPurchaseBoard(state){
       if (isFuture(state, key)) return; // compra futura — ainda não entrou no fluxo
       const status = getPurchaseStatus(state, key);
       const col = status.pago ? 'pago' : (status.orcado ? 'orcado' : 'solicitado');
-      grouped[col].push({ sala, text, priority: isPriority(state, key) });
+      grouped[col].push({ sala, text, key, priority: isPriority(state, key), late: isLate(state, key) });
     });
   });
 
@@ -2270,13 +2473,13 @@ function renderPurchaseBoard(state){
     if (items.length === 0){
       body.innerHTML = '<div class="calendar-day-empty">—</div>';
     } else {
-      items.forEach(({ sala, text, priority }) => {
-        const color = colorForEmployee(sala);
+      items.forEach(({ sala, text, key, priority, late }) => {
+        const color = late ? '#DC2626' : colorForEmployee(sala);
         const chip = document.createElement('div');
-        chip.className = 'calendar-chip' + (priority ? ' priority' : '');
+        chip.className = 'calendar-chip' + (priority ? ' priority' : '') + (late ? ' late' : '');
         chip.style.borderLeft = `4px solid ${color}`;
-        chip.style.background = hexToRgba(color, 0.1);
-        chip.innerHTML = `<span class="chip-context" style="color:${color}">${sala}</span>${text}`;
+        chip.style.background = hexToRgba(color, late ? 0.14 : 0.1);
+        chip.innerHTML = `<span class="chip-context" style="color:${color}">${sala}</span>${text}` + dateBadgeHtml(state, key);
         body.appendChild(chip);
       });
     }
@@ -3132,7 +3335,19 @@ function renderFutureToggleAll(){
   refreshFutureToggleAll();
 }
 
+// se a página ficar aberta de um dia pro outro, os alertas de prazo se atualizam
+// quando a aba volta a ficar visível
+let lastRenderDay = localDateStr(0);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (typeof isQuickAddMode !== 'undefined' && isQuickAddMode) return;
+  if (!appState || localDateStr(0) === lastRenderDay) return;
+  if (document.querySelector('#modal-overlay.show')) return;
+  render();
+});
+
 function render(){
+  lastRenderDay = localDateStr(0);
   if (!appState) return;
   renderHeaderProgress(appState);
   renderNav(appState);
@@ -3330,7 +3545,7 @@ Finalizar vigas
 Finalizar embutidos"></textarea>
           <div class="modal-hint">Só fica concluída quando todos os subitens estiverem marcados.</div>
         </div>
-      </div>
+${dateFieldsHtml('task-', null)}      </div>
       <div class="modal-col">
         <div class="modal-field">
           <label>Quando?</label>
@@ -3362,7 +3577,7 @@ Finalizar embutidos"></textarea>
               <button type="button" class="mode-btn active" id="material-btn-nao" data-val="nao">Não</button>
               <button type="button" class="mode-btn" id="material-btn-sim" data-val="sim">Sim</button>
             </div>
-            <div class="modal-hint">"Sim" destaca em vermelho.</div>
+            <div class="modal-hint">"Sim" destaca em amarelo.</div>
           </div>
           <div class="modal-field">
             <label>Prioridade?</label>
@@ -3467,6 +3682,7 @@ Finalizar embutidos"></textarea>
     funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
     updateDaysVisibility();
   });
+  funcNewField.style.display = funcSelect.value === '__new__' ? 'block' : 'none';
   updateDaysVisibility();
 
   const selectedDays = new Set();
@@ -3512,6 +3728,12 @@ Finalizar embutidos"></textarea>
       errEl.classList.add('show');
       return;
     }
+    const newDates = readDateInputs('task-date-start', 'task-date-end');
+    if (newDates.error){
+      errEl.textContent = newDates.error;
+      errEl.classList.add('show');
+      return;
+    }
 
     errEl.classList.remove('show');
     const originalLabel = confirmBtn.textContent;
@@ -3520,7 +3742,7 @@ Finalizar embutidos"></textarea>
 
     const subTexts = mode === 'unica' ? parseSubitemTexts(subitemsInput.value) : [];
     texts.forEach(t => {
-      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial, priorityOn, subTexts, isFutureTask);
+      addCustomTask(appState, sala, chosenFunc, t, Array.from(selectedDays), needsMaterial, priorityOn, subTexts, isFutureTask, newDates);
     });
     const ok = await saveState(appState);
 
@@ -3569,7 +3791,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
           <div class="modal-hint">Apagar uma linha remove o subitem. Os já marcados continuam marcados.</div>
         </div>
         `}
-      </div>
+${dateFieldsHtml('edit-', getTaskDates(appState, key))}      </div>
       <div class="modal-col">
         <div class="modal-field">
           <label>Quando?</label>
@@ -3603,7 +3825,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
               <button type="button" class="mode-btn${currentNeedsMaterial ? '' : ' active'}" id="edit-material-btn-nao" data-val="nao">Não</button>
               <button type="button" class="mode-btn${currentNeedsMaterial ? ' active' : ''}" id="edit-material-btn-sim" data-val="sim">Sim</button>
             </div>
-            <div class="modal-hint">"Sim" destaca em vermelho.</div>
+            <div class="modal-hint">"Sim" destaca em amarelo.</div>
           </div>
           <div class="modal-field">
             <label>Prioridade?</label>
@@ -3733,6 +3955,12 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
       errEl.classList.add('show');
       return;
     }
+    const editDates = readDateInputs('edit-date-start', 'edit-date-end');
+    if (editDates.error){
+      errEl.textContent = editDates.error;
+      errEl.classList.add('show');
+      return;
+    }
 
     errEl.classList.remove('show');
     confirmBtn.textContent = 'Salvando...';
@@ -3740,7 +3968,7 @@ Finalizar vigas">${currentSubitemsText.replace(/&/g, '&amp;').replace(/</g, '&lt
 
     const editSubInput = document.getElementById('edit-task-subitems');
     const editSubTexts = editSubInput ? parseSubitemTexts(editSubInput.value) : undefined;
-    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial, editPriority, editSubTexts, editFuture);
+    editTask(appState, sala, func, text, chosenFunc, newText, Array.from(selectedDays), editNeedsMaterial, editPriority, editSubTexts, editFuture, editDates);
     const ok = await saveState(appState);
 
     if (!ok){
@@ -3869,6 +4097,7 @@ async function renderQuickForm(){
         <button type="button" class="mode-btn" id="quick-timing-futura">Futura</button>
       </div>
     </div>
+${dateFieldsHtml('quick-', null)}
     <div class="modal-field" id="quick-days-field">
       <label>Dias (opcional)</label>
       <div class="modal-days">${dayButtonsHtml}</div>
@@ -3930,12 +4159,14 @@ async function renderQuickForm(){
     if (!text){ errEl.textContent = 'Digite o texto da atividade.'; errEl.classList.add('show'); return; }
     if (!sala){ errEl.textContent = 'Escolha ou digite uma sala.'; errEl.classList.add('show'); return; }
     if (!func){ errEl.textContent = 'Escolha ou digite um responsável.'; errEl.classList.add('show'); return; }
+    const quickDates = readDateInputs('quick-date-start', 'quick-date-end');
+    if (quickDates.error){ errEl.textContent = quickDates.error; errEl.classList.add('show'); return; }
 
     confirmBtn.textContent = 'Salvando...';
     confirmBtn.disabled = true;
 
     const criouNovoAlgo = salaSelect.value === '__new__' || funcSelect.value === '__new__';
-    addCustomTask(appState, sala, func, text, Array.from(selectedDays), false, false, [], quickFuture);
+    addCustomTask(appState, sala, func, text, Array.from(selectedDays), false, false, [], quickFuture, quickDates);
     const ok = await saveState(appState);
 
     if (!ok){
@@ -3954,6 +4185,8 @@ async function renderQuickForm(){
       selectedDays.clear();
       document.querySelectorAll('#quick-content .modal-day-chip.active').forEach(chip => chip.classList.remove('active'));
       setQuickTiming(false);
+      document.getElementById('quick-date-start').value = '';
+      document.getElementById('quick-date-end').value = '';
       confirmBtn.textContent = 'Cadastrar atividade';
       confirmBtn.disabled = false;
       textInput.focus();
